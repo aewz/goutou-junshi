@@ -556,6 +556,7 @@ open class ChatCaptureService : AccessibilityService() {
         var gou: List<RankedReply> = emptyList()
         var classicErr: String? = null
         var gouErr: String? = null
+        val hc = prefs.hybridCandidateCount
         fun maybeDone() {
             remaining--
             if (remaining > 0) return
@@ -568,8 +569,8 @@ open class ChatCaptureService : AccessibilityService() {
             // throw on the judge route and discard the candidates.
             val ranked = try {
                 withHardTimeout(REPLY_TIMEOUT_MS, "回复接口") {
-                    if (prefs.hasKey()) client.draftAndRank(snapshot, rel, ctx, count, avoid)
-                    else client.draft(snapshot, rel, ctx, count, avoid, Persona.CLASSIC)
+                    if (prefs.hasKey()) client.draftAndRank(snapshot, rel, ctx, hc, avoid)
+                    else client.draft(snapshot, rel, ctx, hc, avoid, Persona.CLASSIC)
                         .map { RankedReply(it, 0.0) }
                 }
             } catch (e: Exception) {
@@ -582,7 +583,7 @@ open class ChatCaptureService : AccessibilityService() {
         submitAnalysis {
             val drafts = try {
                 withHardTimeout(REPLY_TIMEOUT_MS, "回复接口") {
-                    client.draft(snapshot, rel, ctx, count, avoid, Persona.GOUTOU)
+                    client.draft(snapshot, rel, ctx, hc, avoid, Persona.GOUTOU)
                 }
             } catch (e: Exception) {
                 gouErr = replyErrorText(e)
@@ -806,6 +807,7 @@ open class ChatCaptureService : AccessibilityService() {
         ctx: ChatContext?, count: Int, client: EngineClient
     ) {
         val judgeNeeded = prefs.hasKey()
+        val hc = prefs.hybridCandidateCount
         var remaining = 2 + (if (judgeNeeded) 1 else 0)
         var classic: List<RankedReply> = emptyList()
         var gou: List<RankedReply> = emptyList()
@@ -853,8 +855,8 @@ open class ChatCaptureService : AccessibilityService() {
             // the classic group drafts unranked then. (prob 0.0 = no rank bar.)
             val ranked = try {
                 withHardTimeout(REPLY_TIMEOUT_MS, "回复接口") {
-                    if (prefs.hasKey()) client.draftAndRank(snapshot, rel, ctx, count)
-                    else client.draft(snapshot, rel, ctx, count, emptyList(), Persona.CLASSIC)
+                    if (prefs.hasKey()) client.draftAndRank(snapshot, rel, ctx, hc)
+                    else client.draft(snapshot, rel, ctx, hc, emptyList(), Persona.CLASSIC)
                         .map { RankedReply(it, 0.0) }
                 }
             } catch (e: Exception) {
@@ -871,7 +873,7 @@ open class ChatCaptureService : AccessibilityService() {
         submitAnalysis {
             val drafts = try {
                 withHardTimeout(REPLY_TIMEOUT_MS, "回复接口") {
-                    client.draft(snapshot, rel, ctx, count, emptyList(), Persona.GOUTOU)
+                    client.draft(snapshot, rel, ctx, hc, emptyList(), Persona.GOUTOU)
                 }
             } catch (e: Exception) {
                 gouErr = replyErrorText(e)

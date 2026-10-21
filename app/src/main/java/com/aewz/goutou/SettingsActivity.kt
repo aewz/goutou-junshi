@@ -397,6 +397,10 @@ class SettingsActivity : AppCompatActivity() {
         advisorCard.addView(text(
             "经典：判断引擎分析 + 排序。军师：狗头军师人格出简析和候选，只用回复接口。混合：判断引擎照跑，经典与军师两组候选并排，由你挑。",
             11f, sub))
+        advisorCard.addView(label("混合模式每组条数"))
+        var pickedHybridCount = prefs.hybridCandidateCount
+        advisorCard.addView(pills(listOf("2 条", "3 条"), pickedHybridCount - 2) { pickedHybridCount = it + 2 })
+        advisorCard.addView(text("2 条时 token 省一半，经典组不做排序。", 11f, sub))
         advisorCard.addView(cardBtn("军师知识库") {
             startActivity(android.content.Intent(this, GoutouKnowledgeActivity::class.java))
         })
@@ -470,6 +474,7 @@ class SettingsActivity : AppCompatActivity() {
             prefs.autoAnalyze = (autoRow.tag as? Boolean) ?: true
             prefs.candidateCount = pickedCount
             prefs.advisorMode = pickedMode
+            prefs.hybridCandidateCount = pickedHybridCount
             prefs.ocrFallback = (ocrFallbackRow.tag as? Boolean) ?: true
             prefs.ocrAutoAnalyze = (ocrAutoRow.tag as? Boolean) ?: false
             prefs.contextEnabled = (ctxRow.tag as? Boolean) ?: false

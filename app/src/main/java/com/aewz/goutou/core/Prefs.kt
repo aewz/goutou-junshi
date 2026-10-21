@@ -224,6 +224,11 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
         sp.edit().putInt(K_CARD_X + pkg, x).putInt(K_CARD_Y + pkg, y).apply()
     }
 
+    /** 混合模式每组候选条数（2 或 3，默认 3）。2 条时经典组不做排序。 */
+    var hybridCandidateCount: Int
+        get() = sp.getInt(K_HYBRID_CANDIDATES, 3).coerceIn(2, 3)
+        set(v) = sp.edit().putInt(K_HYBRID_CANDIDATES, v.coerceIn(2, 3)).apply()
+
     /** Auto-analyze on every incoming message; if false, user taps to analyze. */
     var autoAnalyze: Boolean
         get() = sp.getBoolean(K_AUTO, true)
@@ -323,6 +328,7 @@ class Prefs(context: Context, prefsName: String = PREFS_MAIN) {
         private const val K_BUBBLE_X = "bubble_x"
         private const val K_AUTO = "auto_analyze"
         private const val K_CANDIDATES = "candidate_count"
+        private const val K_HYBRID_CANDIDATES = "hybrid_candidate_count"
         private const val K_ADVISOR_MODE = "advisor_mode"
         private const val K_CARD_X = "card_x_"
         private const val K_CARD_Y = "card_y_"

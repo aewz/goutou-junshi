@@ -22,7 +22,8 @@ class EngineClient(prefs: Prefs) {
 
     /**
      * Draft [count] candidates on the reply route, then rank them on the judge
-     * route. A single candidate has nothing to rank, so that round is skipped.
+     * route. The ranking question requires exactly 3 candidates, so anything
+     * fewer comes back unranked (prob 0.0 — the overlay then hides rank bars).
      * [avoid] = replies already shown for this chat (the "换一组" request).
      */
     fun draftAndRank(
@@ -33,7 +34,7 @@ class EngineClient(prefs: Prefs) {
         avoid: List<String> = emptyList()
     ): List<RankedReply> {
         val candidates = replyClient.draft(snapshot, relationship, ctx, count, avoid)
-        if (candidates.size <= 1) return candidates.map { RankedReply(it, 1.0) }
+        if (candidates.size < 3) return candidates.map { RankedReply(it, 0.0) }
         return judgeClient.rank(snapshot, relationship, candidates, ctx)
     }
 
