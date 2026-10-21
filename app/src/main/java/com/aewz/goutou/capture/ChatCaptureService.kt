@@ -459,7 +459,11 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** "换一组" / 重试: redraft the candidates only; the judgment on the card stays. */
     private fun regenerateReplies() {
-        if (analyzing || regenerating || destroyed || !prefs.enabled) return
+        if (analyzing || regenerating) {
+            overlay?.toast("上一轮还在分析中，稍候再试")
+            return
+        }
+        if (destroyed || !prefs.enabled) return
         val snapshot = lastAnalyzed ?: currentSnapshot ?: return
         val token = session.token() ?: return
         if (!isCurrent(token)) return

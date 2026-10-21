@@ -228,8 +228,13 @@ class OverlayController(private val ctx: Context) {
     }
 
     private fun onHeaderTap() {
-        val nothingYet = judgment == null && replies.isNullOrEmpty() && !judgeWaiting
-        if (nothingYet || (judgment == null && errorMsg != null)) { onManualAnalyze?.invoke(); return }
+        // advisorNote counts as content too: GOUTOU mode may land the 简析
+        // while the drafts fail — tapping must expand to show it, not re-run.
+        val nothingYet = judgment == null && advisorNote == null &&
+            replies.isNullOrEmpty() && !judgeWaiting
+        if (nothingYet || (judgment == null && advisorNote == null && errorMsg != null)) {
+            onManualAnalyze?.invoke(); return
+        }
         setExpanded(!expanded)
     }
 
@@ -387,19 +392,22 @@ class OverlayController(private val ctx: Context) {
         if (!ensureWindow()) return
         setMode(Mode.CARD)
         errorMsg = msg
-        judgeWaiting = false; repliesWaiting = false; stopTicker()
+        // 只结判断等待：回复任务可能还在飞（最长 30s 硬超时必然回调），
+        // 提前清掉 repliesWaiting 会让「换一组/重试」按钮在轮次进行中假亮。
+        judgeWaiting = false
+        if (!repliesWaiting) stopTicker()
         render()
     }
 
     fun showJudgment(a: Analysis) {
-        judgment = a; errorMsg = null; judgeWaiting = false
+        judgment = a; advisorNote = null; errorMsg = null; judgeWaiting = false
         stopTickerIfIdle()
         render(); flashIfCollapsed()
     }
 
     /** GOUTOU mode's 军师简析 lands in the analysis slot instead of the judge decision. */
     fun showAdvisorNote(text: String) {
-        advisorNote = text; errorMsg = null; judgeWaiting = false
+        advisorNote = text; judgment = null; errorMsg = null; judgeWaiting = false
         stopTickerIfIdle()
         render(); flashIfCollapsed()
     }
@@ -486,12 +494,13 @@ class OverlayController(private val ctx: Context) {
         when {
             lvl != null -> {
                 pill.text = "${dangerWord(lvl)} $lvl/${a.dangerLevel!!.maxLevel}"
-                pill.setTextColor(Color.WHITE); pill.background = card(10, dangerColor(lvl))
+                pill.setTextColor(if (lvl >= 6) Color.WHITE else Color.parseColor("#201A2E"))
+                pill.background = card(10, dangerColor(lvl))
             }
+            errorMsg != null -> { pill.text = "出错"; pill.setTextColor(Color.WHITE); pill.background = card(10, Color.parseColor("#D64545")) }
             advisorNote != null -> {
                 pill.text = "军师"; pill.setTextColor(Color.WHITE); pill.background = card(10, Color.parseColor("#6C4CF1"))
             }
-            errorMsg != null -> { pill.text = "出错"; pill.setTextColor(Color.WHITE); pill.background = card(10, Color.parseColor("#D64545")) }
             else -> {
                 // Idle / waiting: name the brain this round will actually use.
                 val mode = prefs.advisorMode
@@ -510,8 +519,8 @@ class OverlayController(private val ctx: Context) {
         }
         headText?.text = when {
             a?.trueIntent != null -> INTENT[a.trueIntent.choice] ?: a.trueIntent.choice
-            advisorNote != null -> "军师简析"
             errorMsg != null -> errorMsg
+            advisorNote != null -> "军师简析"
             judgeWaiting -> if (prefs.advisorMode == Prefs.MODE_GOUTOU) "军师分析中…" else "分析中…"
             a != null -> "已分析"
             else -> "点这里分析当前对话"
@@ -535,15 +544,15 @@ class OverlayController(private val ctx: Context) {
         val a = judgment
         if (a != null) {
             a.trueIntent?.let {
-                b.addView(line("对方真实意图：${INTENT[it.choice] ?: it.choice}", "#111827", 14f, true))
+                b.addView(line("对方真实意图：${INTENT[it.choice] ?: it.choice}", "#201A2E", 14f, true))
                 b.addView(hint("把握 ${(it.confidence * 100).roundToInt()}%"))
             }
             val bits = ArrayList<String>()
             a.sheNeeds?.let { bits.add("要${NEEDS[it.choice] ?: it.choice}") }
             a.bestAction?.let { bits.add(ACTION[it.choice] ?: it.choice) }
             a.shouldReplyNow?.let { bits.add(if (it >= 0.5) "可给实质" else "先别给实质") }
-            if (bits.isNotEmpty()) b.addView(line(bits.joinToString("  ·  "), "#374151", 13f))
-            a.tensionResolved?.let { if (it >= 0.7) b.addView(line("✓ 紧张已缓解", "#16A34A", 12f)) }
+            if (bits.isNotEmpty()) b.addView(line(bits.joinToString("  ·  "), "#6B6483", 13f))
+            a.tensionResolved?.let { if (it >= 0.7) b.addView(line("✓ 紧张已缓解", "#27915C", 12f)) }
         } else if (judgeWaiting) {
             b.addView(waitHint(if (prefs.advisorMode == Prefs.MODE_GOUTOU) "军师分析中" else "分析中"))
         } else if (!advisorNote.isNullOrBlank()) {
@@ -554,50 +563,50 @@ class OverlayController(private val ctx: Context) {
                 background = card(12, Color.parseColor("#F0EBFD"))
                 setPadding(dp(10), dp(8), dp(10), dp(8))
             }
-            noteCard.addView(line("军师简析", "#7C3AED", 13f, true))
-            noteCard.addView(line(advisorNote!!, "#4C1D95", 13f).apply { setLineSpacing(dp(2).toFloat(), 1f) })
+            noteCard.addView(line("军师简析", "#6C4CF1", 13f, true))
+            noteCard.addView(line(advisorNote!!, "#6C4CF1", 13f).apply { setLineSpacing(dp(2).toFloat(), 1f) })
             b.addView(noteCard)
         }
         errorMsg?.let {
-            if (a != null) b.addView(line("这一轮更新失败：$it", "#DC2626", 12f))
-            else if (advisorNote == null && prefs.advisorMode != Prefs.MODE_CLASSIC) b.addView(line(it, "#DC2626", 12f))
+            if (a != null) b.addView(line("这一轮更新失败：$it", "#D64545", 12f))
+            else b.addView(line(it, "#D64545", 12f))
         }
 
         b.addView(divider())
         val list = replies.orEmpty()
-        val jevList = list.filter { it.source != "goutou" }
+        val classicList = list.filter { it.source != "goutou" }
         val goutouList = list.filter { it.source == "goutou" }
-        val dual = jevList.isNotEmpty() && goutouList.isNotEmpty()
+        val dual = classicList.isNotEmpty() && goutouList.isNotEmpty()
         when {
             list.isNotEmpty() -> {
                 // prob 0.0 on every classic reply = unranked (HYBRID without a judge key).
-                val jevRanked = jevList.any { it.prob > 0.0 }
+                val classicRanked = classicList.any { it.prob > 0.0 }
                 if (dual) {
-                    b.addView(hint("候选回复（两组并排，任选一条填入）"))
-                    b.addView(groupChip(if (jevRanked) "经典 · 引擎排序" else "经典", Color.parseColor("#6C4CF1")))
-                    jevList.forEachIndexed { i, r ->
-                        b.addView(replyCard(i + 1, r.text, (r.prob * 100).roundToInt(), jevRanked && jevList.size > 1))
+                    b.addView(hint("候选回复（经典 · 军师两组，任选一条填入）"))
+                    b.addView(groupChip(if (classicRanked) "经典 · 引擎排序" else "经典", Color.parseColor("#3F74C9")))
+                    classicList.forEachIndexed { i, r ->
+                        b.addView(replyCard(i + 1, r.text, (r.prob * 100).roundToInt(), classicRanked && classicList.size > 1))
                     }
                     b.addView(groupChip("军师", Color.parseColor("#6C4CF1")))
                     goutouList.forEachIndexed { i, r ->
-                        b.addView(replyCard(jevList.size + i + 1, r.text, 0, ranked = false,
+                        b.addView(replyCard(classicList.size + i + 1, r.text, 0, ranked = false,
                             tint = if (i == 0) Color.parseColor("#F0EBFD") else Color.parseColor("#FDFCFF")))
                     }
                     // One group came back empty: surface its error under its chip.
-                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#DC2626", 12f)) }
+                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#D64545", 12f)) }
                 } else if (goutouList.isNotEmpty()) {
                     b.addView(hint("候选回复（军师，第一条为首选）"))
                     goutouList.forEachIndexed { i, r ->
                         b.addView(replyCard(i + 1, r.text, 0, ranked = false,
                             tint = if (i == 0) Color.parseColor("#F0EBFD") else Color.parseColor("#FDFCFF")))
                     }
-                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#DC2626", 12f)) }
+                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#D64545", 12f)) }
                 } else {
-                    b.addView(hint(if (jevRanked) "候选回复（经典排序）" else "候选回复"))
-                    jevList.forEachIndexed { i, r ->
-                        b.addView(replyCard(i + 1, r.text, (r.prob * 100).roundToInt(), jevRanked && jevList.size > 1))
+                    b.addView(hint(if (classicRanked) "候选回复（经典排序）" else "候选回复"))
+                    classicList.forEachIndexed { i, r ->
+                        b.addView(replyCard(i + 1, r.text, (r.prob * 100).roundToInt(), classicRanked && classicList.size > 1))
                     }
-                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#DC2626", 12f)) }
+                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#D64545", 12f)) }
                 }
             }
             repliesWaiting -> b.addView(waitHint(when (prefs.advisorMode) {
@@ -611,7 +620,7 @@ class OverlayController(private val ctx: Context) {
                     replyError != null -> "回复接口出错：$replyError"
                     else -> "（未生成候选回复）"
                 }
-                b.addView(line(msg, "#DC2626", 12f))
+                b.addView(line(msg, "#D64545", 12f))
             }
         }
         // Footer: status on the left, "换一组" (or 重试) on the right.
@@ -692,7 +701,7 @@ class OverlayController(private val ctx: Context) {
             setPadding(0, dp(2), 0, dp(2))
         }
 
-    private fun hint(text: String) = line(text, "#9CA3AF", 12f)
+    private fun hint(text: String) = line(text, "#6B6483", 12f)
 
     private fun divider() = View(ctx).apply {
         setBackgroundColor(Color.parseColor("#EAE7F6"))
@@ -703,7 +712,7 @@ class OverlayController(private val ctx: Context) {
 
     private fun copy(text: String) {
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        cm.setPrimaryClip(android.content.ClipData.newPlainText("jev_reply", text))
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("goutou_reply", text))
         toast("已复制")
     }
 
