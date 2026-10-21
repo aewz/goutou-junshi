@@ -1,0 +1,25 @@
+Jev 聊天助手 · 军师版 (Jev Chat Assistant · Goutou Edition)
+基于以下两个 MIT 项目二次开发：
+
+1. Jev 聊天助手 (Jev Chat Assistant)
+   Copyright (c) 2026 Finderchangchang and the jev-chat contributors
+   https://github.com/jev-chat/jev-chat-jarvis · https://chatjevs.com
+
+2. 狗头军师 (goutoujunshi)
+   Copyright (c) 2026 powerycy
+   https://github.com/shengjidaguai-china/goutoujunshi
+
+本项目以 MIT 协议开源（见 LICENSE）。
+
+- 允许个人和商业使用、修改、再分发、集成到自有产品中，无需付费或事先授权。
+- 分发或商用时，必须保留 LICENSE 与本 NOTICE 文件，并在产品的「关于」页、说明文档或发布页中注明出处。
+  推荐写法：基于 Jev 聊天助手（https://github.com/jev-chat/jev-chat-jarvis）与
+  狗头军师（https://github.com/shengjidaguai-china/goutoujunshi）二次开发。
+- 不得使用「Jev 聊天助手」「jev-chat」名称或官网域名暗示由原作者出品或背书。
+
+This project is licensed under the MIT License (see LICENSE). It is derived
+from two MIT projects — Jev Chat Assistant (https://github.com/jev-chat/jev-chat-jarvis)
+and goutoujunshi (https://github.com/shengjidaguai-china/goutoujunshi). When you
+distribute or commercialize this software or a derivative, keep the LICENSE and
+this NOTICE, and credit the sources. Do not use the upstream project names or
+domains to imply endorsement by the original authors.

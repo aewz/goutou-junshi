@@ -1,0 +1,16 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- 「紫气东来」浅色主题：系统对话框、状态栏随主题。 -->
+    <style name="Theme.GoutouJunshi" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">#6D3FE0</item>
+        <item name="colorPrimaryVariant">#7C3AED</item>
+        <item name="colorSecondary">#6D3FE0</item>
+        <item name="colorOnPrimary">#FFFFFF</item>
+        <item name="android:windowBackground">#F6F4FB</item>
+        <item name="colorSurface">#FFFFFF</item>
+        <item name="colorOnSurface">#231D33</item>
+        <item name="colorError">#D64545</item>
+        <item name="android:textColorPrimary">#231D33</item>
+        <item name="android:textColorSecondary">#6E6683</item>
+        <item name="android:textColorHint">#A29BB8</item>
+    </style>
+</resources>
