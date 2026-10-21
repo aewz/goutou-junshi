@@ -92,7 +92,7 @@ class MainActivity : AppCompatActivity() {
 
         // 权限清单
         container.addView(Views.section(this, "权限设置"))
-        container.addView(permCard("无障碍权限", "读取当前聊天窗口的消息文字", a11y) {
+        container.addView(permCard("无障碍权限", "读取当前聊天窗口的消息文字（每次升级安装后需重开）", a11y) {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         })
         container.addView(permCard("悬浮窗权限", "在聊天窗口上方显示分析卡片", overlay) {
@@ -103,6 +103,15 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
             }
         })
+        // Android 13+ 侧载安装：系统会拦「受限设置」，无障碍开关开了也可能被自动关掉。
+        if (!a11y && isSideloaded()) {
+            container.addView(permCard("受限设置（Android 13+）",
+                "侧载安装的 App 需在应用详情里允许「受限设置」，否则无障碍开关可能被系统自动关掉", null) {
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+                }
+            })
+        }
 
         // 其他
         container.addView(Views.section(this, "其他"))
@@ -232,6 +241,12 @@ class MainActivity : AppCompatActivity() {
         val enabled = Settings.Secure.getString(contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES) ?: return false
         return enabled.contains(a11yComponent)
+    }
+
+    /** 侧载安装（非应用商店）——受限设置拦截的判断依据。 */
+    private fun isSideloaded(): Boolean {
+        val installer = runCatching { packageManager.getInstallerPackageName(packageName) }.getOrNull()
+        return installer.isNullOrBlank() || installer == "adb"
     }
 
     companion object {

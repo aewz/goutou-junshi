@@ -87,7 +87,7 @@ open class ChatCaptureService : AccessibilityService() {
     /** Submit to the worker, ignoring rejection after the service is torn down
      *  (a stale overlay callback must never crash the process). */
     private fun submit(task: () -> Unit) {
-        try { worker.execute(task) } catch (_: RejectedExecutionException) { }
+        try { worker.execute(safe(task)) } catch (_: RejectedExecutionException) { }
     }
     private lateinit var prefs: Prefs
     private var overlay: OverlayController? = null
@@ -202,7 +202,18 @@ open class ChatCaptureService : AccessibilityService() {
 
     /** Only called on the main thread, including the context-completion callback. */
     private fun submitAnalysis(task: () -> Unit) {
-        try { analysisTasks.add(worker.submit(task)) } catch (_: RejectedExecutionException) { }
+        try { analysisTasks.add(worker.submit(safe(task))) } catch (_: RejectedExecutionException) { }
+    }
+
+    /**
+     * 兜底：worker 线程里任何未捕获异常都会杀死整个进程 → 无障碍服务崩溃 →
+     * 系统/OEM 检测到反复崩溃会自动关掉无障碍开关。这里统一接住并记日志，
+     * 单次任务失败只影响该任务。
+     */
+    private fun safe(task: () -> Unit): () -> Unit = {
+        try { task() } catch (t: Throwable) {
+            Log.e(TAG, "worker task crashed: ${t.javaClass.simpleName} ${t.message}")
+        }
     }
 
     private val debounce = Runnable { runAnalysis() }
@@ -246,6 +257,13 @@ open class ChatCaptureService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // 兜底：连接初始化崩溃会直接打掉无障碍服务。
+        try { connect() } catch (t: Throwable) {
+            Log.e(TAG, "onServiceConnected crashed: ${t.javaClass.simpleName} ${t.message}")
+        }
+    }
+
+    private fun connect() {
         prefs = Prefs(this)
         getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(preferencesListener)
@@ -285,6 +303,14 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // 兜底：事件处理器跑在主线程，任何未捕获异常都会杀死进程 →
+        // 系统可能自动关闭无障碍开关。接住并记日志，坏事件只丢这一个。
+        try { handleEvent(event) } catch (t: Throwable) {
+            Log.e(TAG, "event handler crashed: ${t.javaClass.simpleName} ${t.message}")
+        }
+    }
+
+    private fun handleEvent(event: AccessibilityEvent?) {
         if (event == null) return
         if (!prefs.enabled) { leaveConversation(); overlay?.hide(); return }
 
