@@ -83,10 +83,14 @@ class ScreenCapture(
         val finish: (Result) -> Unit = { r ->
             if (done.compareAndSet(false, true)) {
                 main.post {
-                    restoreOverlay()
-                    if (r is Result.Ok) failStreak = 0
-                    else failStreak = (failStreak + 1).coerceAtMost(MAX_STREAK)
-                    onResult(r)
+                    try {
+                        restoreOverlay()
+                        if (r is Result.Ok) failStreak = 0
+                        else failStreak = (failStreak + 1).coerceAtMost(MAX_STREAK)
+                        onResult(r)
+                    } catch (t: Throwable) {
+                        android.util.Log.e("GOUTOU", "ocr result callback crashed: ${t.message}")
+                    }
                 }
             }
         }

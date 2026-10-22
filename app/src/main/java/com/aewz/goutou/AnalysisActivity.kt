@@ -73,7 +73,10 @@ class AnalysisActivity : AppCompatActivity() {
             container.addView(Views.loadingState(this, "正在分析中…稍候片刻，结果会自动出现"))
             container.addView(Views.textBtn(this, "取消分析", P.DANGER) {
                 ChatCaptureService.instance?.cancelFromPage()
+                render()   // cancelFromPage 会复位 waiting，立即刷新
             })
+            // 1s 轮询：分析落地后自动刷新，不依赖任何外部通知
+            container.postDelayed({ if (LastRound.waiting) render() }, 1000)
             return
         }
         if (!LastRound.hasResult) {
@@ -179,8 +182,11 @@ class AnalysisActivity : AppCompatActivity() {
             setPadding(0, dp(14), 0, 0)
         }
         ops.addView(Views.tonalBtn(this, "↻ 重新生成") {
-            ChatCaptureService.instance?.regenerateFromPage()
-            Toast.makeText(this, "已请求重新生成（需在聊天会话中）", Toast.LENGTH_SHORT).show()
+            val ok = ChatCaptureService.instance?.regenerateFromPage() == true
+            Toast.makeText(this,
+                if (ok) "已请求重新生成，结果稍后出现在悬浮窗与本页"
+                else "当前不在刚才的聊天会话里，无法重新生成",
+                Toast.LENGTH_SHORT).show()
         })
         ops.addView(Views.ghostBtn(this, "关闭") { finish() })
         container.addView(ops)

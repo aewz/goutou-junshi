@@ -67,6 +67,7 @@ class OverlayController(private val ctx: Context) {
     private var chevron: TextView? = null
     private var bodyScroll: MaxHeightScroll? = null
     private var body: LinearLayout? = null
+    private var gripView: TextView? = null
     private var menuView: View? = null
     private var expanded = false
 
@@ -128,9 +129,18 @@ class OverlayController(private val ctx: Context) {
 
     // ---------------------------------------------------------------- window
 
+    private var overlayPermToastShown = false
+
     private fun ensureWindow(): Boolean {
         if (root != null) return true
-        if (!canOverlay()) { android.util.Log.w("GOUTOU", "overlay: canDrawOverlays=false"); return false }
+        if (!canOverlay()) {
+            android.util.Log.w("GOUTOU", "overlay: canDrawOverlays=false")
+            if (!overlayPermToastShown) {
+                overlayPermToastShown = true
+                toast("未开启悬浮窗权限，去设置里打开")
+            }
+            return false
+        }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -241,6 +251,7 @@ class OverlayController(private val ctx: Context) {
             setTextColor(P.FAINT)
             setPadding(0, dp(4), 0, dp(6))
         }
+        gripView = grip
         var gripStartY = 0f
         var gripStartH = 0
         grip.setOnTouchListener { _, e ->
@@ -273,7 +284,7 @@ class OverlayController(private val ctx: Context) {
         // while the drafts fail — tapping must expand to show it, not re-run.
         val nothingYet = judgment == null && advisorNote == null &&
             replies.isNullOrEmpty() && !judgeWaiting
-        if (nothingYet || (judgment == null && advisorNote == null && errorMsg != null)) {
+        if (nothingYet || (judgment == null && advisorNote == null && errorMsg != null && replies.isNullOrEmpty())) {
             onManualAnalyze?.invoke(); return
         }
         setExpanded(!expanded)
@@ -284,9 +295,11 @@ class OverlayController(private val ctx: Context) {
         expanded = v
         if (v) {
             val y = lp?.y ?: dp(92)
-            s.maxH = minOf((screenH * 0.5f).roundToInt(), screenH - y - dp(140)).coerceAtLeast(dp(180))
+            val avail = (screenH - y - dp(140)).coerceAtLeast(dp(120))
+            s.maxH = minOf((screenH * 0.5f).roundToInt(), avail)
         }
         s.visibility = if (v) View.VISIBLE else View.GONE
+        gripView?.visibility = if (v) View.VISIBLE else View.GONE
         render()
         updateLayout()
     }
@@ -302,6 +315,11 @@ class OverlayController(private val ctx: Context) {
             val p = lp ?: return@setOnTouchListener false
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    // 按在可点击子控件上（头部的最小化/关闭）：交还给子控件处理，
+                    // 否则 DOWN 返回 true 会把子按钮的点击全部吞掉。
+                    if (v is ViewGroup && hitClickableChild(v, e.x.toInt(), e.y.toInt())) {
+                        return@setOnTouchListener false
+                    }
                     startX = p.x; startY = p.y; touchX = e.rawX; touchY = e.rawY
                     moved = false; longFired = false
                     v.postDelayed(longPress, 550); true
@@ -330,6 +348,16 @@ class OverlayController(private val ctx: Context) {
                 else -> false
             }
         }
+    }
+
+    /** 触摸点是否落在某个可点击子控件上。 */
+    private fun hitClickableChild(parent: ViewGroup, x: Int, y: Int): Boolean {
+        for (i in 0 until parent.childCount) {
+            val c = parent.getChildAt(i)
+            if (c.isClickable && c.visibility == View.VISIBLE &&
+                x >= c.left && x <= c.right && y >= c.top && y <= c.bottom) return true
+        }
+        return false
     }
 
     private fun showMenu(top: Int) {
@@ -458,6 +486,8 @@ class OverlayController(private val ctx: Context) {
      * settle the judge wait so the ticker stops and the footer buttons unlock.
      */
     fun skipJudge() {
+        // 本轮不跑判断：清掉上一轮的判断，避免旧结果被当成当前消息的结论。
+        judgment = null
         judgeWaiting = false
         stopTickerIfIdle()
         render()
@@ -508,7 +538,11 @@ class OverlayController(private val ctx: Context) {
 
     /** Nothing came back in time (or the round was dropped): never keep spinning. */
     private fun giveUp() {
-        if (judgeWaiting) { judgeWaiting = false; if (judgment == null) errorMsg = "分析超时，点这里重试" }
+        if (judgeWaiting) {
+            judgeWaiting = false
+            // 即使旧结果在场也标出本轮超时，避免静默（body 会在展开时显示）。
+            errorMsg = "本轮超时，点这里重试"
+        }
         if (repliesWaiting) { repliesWaiting = false; if (replies.isNullOrEmpty()) replyError = "生成超时" }
         stopTicker()
         render()
@@ -535,12 +569,12 @@ class OverlayController(private val ctx: Context) {
         when {
             lvl != null -> {
                 pill.text = "${dangerWord(lvl)} $lvl/${a.dangerLevel!!.maxLevel}"
-                pill.setTextColor(if (lvl >= 6) Color.WHITE else P.PAPER)
+                pill.setTextColor(if (lvl >= 6) P.BRAND_ON else P.PAPER)
                 pill.background = card(10, dangerColor(lvl))
             }
-            errorMsg != null -> { pill.text = "出错"; pill.setTextColor(Color.WHITE); pill.background = card(10, P.DANGER) }
+            errorMsg != null -> { pill.text = "出错"; pill.setTextColor(P.BRAND_ON); pill.background = card(10, P.DANGER) }
             advisorNote != null -> {
-                pill.text = "军师"; pill.setTextColor(Color.WHITE); pill.background = card(10, P.BRAND)
+                pill.text = "军师"; pill.setTextColor(P.BRAND_ON); pill.background = card(10, P.BRAND)
             }
             else -> {
                 // Idle / waiting: name the brain this round will actually use.
@@ -550,7 +584,7 @@ class OverlayController(private val ctx: Context) {
                     Prefs.MODE_HYBRID -> "混合"
                     else -> "经典"
                 }
-                pill.setTextColor(Color.WHITE)
+                pill.setTextColor(P.BRAND_ON)
                 pill.background = card(10, when (mode) {
                     Prefs.MODE_GOUTOU -> P.BRAND
                     Prefs.MODE_HYBRID -> P.GOLD
@@ -676,8 +710,7 @@ class OverlayController(private val ctx: Context) {
         if (repliesWaiting && list.isNotEmpty()) { left.text = "换一组中…"; waitLabels.add(left to "换一组中") }
         else left.text = if (list.isNotEmpty()) (if (dual) "两组共 ${list.size} 条" else "${list.size} 条候选") else ""
         footer.addView(left)
-        // 底部操作行：展开 / 重新分析 / 换一组
-        if (list.isNotEmpty()) footer.addView(miniBtn("展开") { setExpanded(true) })
+        // 底部操作行：重新分析 / 换一组（展开入口在头部，避免折叠态无入口）
         if (!repliesWaiting && !judgeWaiting) {
             footer.addView(miniBtn("重新分析") { onManualAnalyze?.invoke() })
             footer.addView(miniBtn(if (list.isEmpty()) "重试" else "换一组") { onRegenerate?.invoke() })
@@ -698,7 +731,7 @@ class OverlayController(private val ctx: Context) {
     /** A small colored tag above a reply group ("经典" / "军师"). */
     private fun groupChip(label: String, color: Int) = TextView(ctx).apply {
         text = label; textSize = 12f; setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Color.WHITE); background = card(8, color)
+        setTextColor(P.BRAND_ON); background = card(8, color)
         setPadding(dp(8), dp(3), dp(8), dp(3))
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT
@@ -735,7 +768,7 @@ class OverlayController(private val ctx: Context) {
     private fun pill(label: String, primary: Boolean, onClick: () -> Unit) = TextView(ctx).apply {
         text = label; textSize = 13f; gravity = Gravity.CENTER
         setTypeface(typeface, Typeface.BOLD)
-        setTextColor(if (primary) Color.WHITE else P.BRAND)
+        setTextColor(if (primary) P.BRAND_ON else P.BRAND)
         background = card(18, if (primary) P.BRAND else P.CARD, stroke = !primary)
         setPadding(dp(16), dp(6), dp(16), dp(6))
         layoutParams = LinearLayout.LayoutParams(

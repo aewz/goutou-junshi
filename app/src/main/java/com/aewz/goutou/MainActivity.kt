@@ -190,6 +190,12 @@ class MainActivity : AppCompatActivity() {
                     runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
                 })
             }
+            content.addView(permRow("电池优化白名单", "省电策略会冻结无障碍服务、开关被系统回收", false) {
+                runCatching {
+                    startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                        Uri.parse("package:$packageName")))
+                }
+            })
             content.addView(permRow("自启动 + 省电无限制", "小米/HyperOS 必做", false) {
                 runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
             })

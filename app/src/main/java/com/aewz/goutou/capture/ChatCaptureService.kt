@@ -94,6 +94,7 @@ open class ChatCaptureService : AccessibilityService() {
     private var overlay: OverlayController? = null
 
     private var lastSignature: String = ""
+    private var lastContentEventAt = 0L
     private var activePkg: String? = null
     private var analyzing = false
     /** A "换一组" redraft is in flight (candidates only; the judgment stays). */
@@ -109,8 +110,12 @@ open class ChatCaptureService : AccessibilityService() {
     private val preferencesListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         if (key == "enabled" || key == "whitelist") {
             main.post {
-                leaveConversation()
-                overlay?.hide()
+                try {
+                    leaveConversation()
+                    overlay?.hide()
+                } catch (t: Throwable) {
+                    Log.e(TAG, "prefs listener crashed: ${t.javaClass.simpleName} ${t.message}")
+                }
             }
         }
     }
@@ -125,6 +130,9 @@ open class ChatCaptureService : AccessibilityService() {
         analysisTasks.forEach { it.cancel(true) }
         analysisTasks.clear()
         overlay?.resetForNewConversation()
+        // 结果页正在等待时会读这个标志；不复位会永久卡「分析中」。
+        LastRound.waiting = false
+        if (LastRound.analysisError == null && LastRound.hasResult) LastRound.analysisError = "已取消"
     }
 
     /** Drop the round in flight (its result would be stale) but keep what the card shows. */
@@ -157,14 +165,16 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     /** Read the live target, never the previous chat's cached/stabilized title. */
-    private fun targetFor(root: AccessibilityNodeInfo): ConversationSession.Target? {
+    private fun targetFor(root: AccessibilityNodeInfo, preExtracted: ChatSnapshot? = null): ConversationSession.Target? {
         val pkg = root.packageName?.toString() ?: return null
         if (isBlocked(pkg) || pkg == packageName || pkg == "com.android.systemui" ||
             pkg.contains("launcher", true) || pkg == "com.miui.home") return null
         val adapter = adapters[pkg]
         var messagesSignature: String? = null
         val title = if (adapter != null) {
-            val snapshot = adapter.extract(root, resources) ?: return null
+            // 热路径（maybeCapture）传入已提取的快照：每个事件一次全树遍历，
+            // 而不是两次——这是主线程 ANR（系统关无障碍）的主因之一。
+            val snapshot = preExtracted ?: (adapter.extract(root, resources) ?: return null)
             messagesSignature = snapshot.takeIf { it.messages.isNotEmpty() }?.signature()
             // A loading/unknown title cannot prove which conversation is open —
             // unless the SAME app+window already has a known one: animated
@@ -274,16 +284,13 @@ open class ChatCaptureService : AccessibilityService() {
         }
     }
 
-    /** 结果页「重新生成」：对最近一轮重出候选；不在会话中则提示。 */
-    fun regenerateFromPage() {
-        main.post {
-            val t = session.token()
-            if (t == null || !isCurrent(t)) {
-                overlay?.toast("当前不在刚才的聊天会话里")
-                return@post
-            }
-            regenerateReplies()
-        }
+    /** 结果页「重新生成」：对最近一轮重出候选。返回是否真正发起。 */
+    fun regenerateFromPage(): Boolean {
+        if (lastAnalyzed == null && currentSnapshot == null) return false
+        val t = session.token() ?: return false
+        if (!isCurrent(t)) return false
+        main.post { regenerateReplies() }
+        return true
     }
 
     /** 结果页「取消分析」。 */
@@ -300,6 +307,12 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun connect() {
+        // 重入保护：个别 OEM 可能在不走 onDestroy 的情况下重绑服务，
+        // 先把旧悬浮窗摘干净，避免幽灵窗口永久残留。
+        overlay?.onManualAnalyze = null
+        overlay?.onSaveContact = null
+        overlay?.onOcrCapture = null
+        overlay?.hide()
         instance = this
         prefs = Prefs(this)
         getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
@@ -361,6 +374,15 @@ open class ChatCaptureService : AccessibilityService() {
         if (event.packageName?.toString() == packageName &&
             (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
              type == AccessibilityEvent.TYPE_VIEW_SCROLLED)) return
+        // 输入节流：长列表滚动/消息风暴时这两个事件可达每秒数十条，每条都做
+        // 全树提取会饱和主线程 → 服务 ANR → 系统自动关无障碍开关。丢弃
+        // 中间事件是安全的：maybeCapture 读的是活树快照，不依赖事件内容。
+        if (type == AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED ||
+            type == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            val now = SystemClock.uptimeMillis()
+            if (now - lastContentEventAt < EVENT_MIN_GAP_MS) return
+            lastContentEventAt = now
+        }
         // Decide "did we leave the chat app" from the REAL active window, not the
         // event's package. The event package can be an IME (e.g. com.tencent.wetype)
         // or the status bar while the chat app is still foreground — keying off it
@@ -380,8 +402,12 @@ open class ChatCaptureService : AccessibilityService() {
             // generic no-adapter branch.
             if (isBlocked(fg)) { foregroundPkg = fg; showBlocked(auto = true); return }
             if (fg != null && fg !in adapters) {
-                val target = rootInActiveWindow?.let { targetFor(it) }
-                if (session.target != target) leaveConversation()
+                // 自家 App 不拆会话：结果页的「填入 / 重新生成 / 取消」依赖会话
+                // 保持可用（气泡照常在宽限期后隐藏）。
+                if (fg != packageName) {
+                    val target = rootInActiveWindow?.let { targetFor(it) }
+                    if (session.target != target) leaveConversation()
+                }
                 foregroundPkg = fg
                 blockedNoticeShown = false // left a blocked app → allow the notice again next visit
                 val drop = fg == packageName ||
@@ -430,7 +456,7 @@ open class ChatCaptureService : AccessibilityService() {
         // their list screen produced no bubble at all.
         val rawSnapshot = adapter.extract(root, resources)
         if (rawSnapshot == null) { scheduleLeave(); return }
-        val target = targetFor(root)
+        val target = targetFor(root, rawSnapshot)
         if (target == null) { scheduleLeave(); return }
         main.removeCallbacks(confirmLeave)
         observeTarget(target)
@@ -532,6 +558,7 @@ open class ChatCaptureService : AccessibilityService() {
         if (!isCurrent(token)) return
         if (!hasKeyForMode()) { overlay?.showError(keyGateMessage()); return }
         regenerating = true
+        LastRound.mode = prefs.advisorMode   // 换一组可能发生在切换模式之后，同步页面标签
         val avoid = overlay?.currentReplyTexts().orEmpty()
         overlay?.beginRegenerate()
         val client = EngineClient(prefs)
@@ -555,10 +582,15 @@ open class ChatCaptureService : AccessibilityService() {
                 main.post {
                     regenerating = false
                     if (isCurrent(token)) {
-                        LastRound.replies = drafts.map { RankedReply(it, 0.0, "goutou") }
-                        LastRound.replyError = replyError
-                        LastRound.finish()
-                        overlay?.showReplies(LastRound.replies, replyError) { text -> fillInput(token, text) }
+                        if (drafts.isEmpty() && avoid.isNotEmpty()) {
+                            // 生成失败：保留卡片上的旧候选，只提示，不抹掉。
+                            overlay?.toast(if (replyError != null) "生成失败，已保留上一组候选" else "没生成新候选，保留上一组")
+                        } else {
+                            LastRound.replies = drafts.map { RankedReply(it, 0.0, "goutou") }
+                            LastRound.replyError = replyError
+                            LastRound.finish()
+                            overlay?.showReplies(LastRound.replies, replyError) { text -> fillInput(token, text) }
+                        }
                     }
                 }
             }
@@ -577,10 +609,14 @@ open class ChatCaptureService : AccessibilityService() {
                 main.post {
                     regenerating = false
                     if (isCurrent(token)) {
-                        LastRound.replies = ranked
-                        LastRound.replyError = replyError
-                        LastRound.finish()
-                        overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
+                        if (ranked.isEmpty() && avoid.isNotEmpty()) {
+                            overlay?.toast(if (replyError != null) "生成失败，已保留上一组候选" else "没生成新候选，保留上一组")
+                        } else {
+                            LastRound.replies = ranked
+                            LastRound.replyError = replyError
+                            LastRound.finish()
+                            overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
+                        }
                     }
                 }
             }
@@ -607,6 +643,10 @@ open class ChatCaptureService : AccessibilityService() {
             if (remaining > 0) return
             regenerating = false
             val merged = mergedGroupError(classicErr, gouErr)
+            if (classic.isEmpty() && gou.isEmpty() && avoid.isNotEmpty()) {
+                if (isCurrent(token)) overlay?.toast("生成失败，已保留上一组候选")
+                return
+            }
             LastRound.replies = classic + gou
             LastRound.replyError = merged
             LastRound.finish()
@@ -1286,6 +1326,9 @@ open class ChatCaptureService : AccessibilityService() {
         @Volatile var instance: ChatCaptureService? = null
 
         private const val TAG = "GOUTOU"
+
+        /** 高频内容/滚动事件的最小间隔（输入节流，防主线程 ANR）。 */
+        private const val EVENT_MIN_GAP_MS = 250L
 
         /** Hard ceiling on one round's judge/reply HTTP. HttpURLConnection bounds
          *  connect/read per attempt but NOT DNS resolution, so a wedged lookup

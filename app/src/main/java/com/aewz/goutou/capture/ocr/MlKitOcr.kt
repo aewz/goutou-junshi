@@ -50,13 +50,13 @@ class MlKitOcr : OcrEngine {
             if (region != null) {
                 val r = Rect(region)
                 if (!r.intersect(0, 0, bitmap.width, bitmap.height) || r.width() < 8 || r.height() < 8) {
-                    main.post { cb(emptyList()) }; return@execute
+                    main.post { runCatching { cb(emptyList()) } }; return@execute
                 }
                 src = try {
                     Bitmap.createBitmap(bitmap, r.left, r.top, r.width(), r.height())
                 } catch (e: Exception) {
                     Log.w(TAG, "ocr crop failed: ${e.javaClass.simpleName}")
-                    main.post { cb(emptyList()) }; return@execute
+                    main.post { runCatching { cb(emptyList()) } }; return@execute
                 }
                 ox = r.left; oy = r.top; cropped = true
             } else {
@@ -71,7 +71,7 @@ class MlKitOcr : OcrEngine {
                 InputImage.fromBitmap(src, 0)
             } catch (e: Exception) {
                 if (cropped) src.recycle()
-                main.post { cb(emptyList()) }; return@execute
+                main.post { runCatching { cb(emptyList()) } }; return@execute
             }
 
             client.process(image)
@@ -91,12 +91,12 @@ class MlKitOcr : OcrEngine {
                     }
                     lines.sortBy { it.bounds.top }
                     if (cropped) src.recycle()
-                    main.post { cb(lines) }
+                    main.post { runCatching { cb(lines) } }
                 }
                 .addOnFailureListener { e ->
                     Log.w(TAG, "ocr failed: ${e.javaClass.simpleName}")
                     if (cropped) src.recycle()
-                    main.post { cb(emptyList()) }
+                    main.post { runCatching { cb(emptyList()) } }
                 }
         }
     }

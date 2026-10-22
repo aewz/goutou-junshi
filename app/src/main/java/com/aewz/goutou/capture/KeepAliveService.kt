@@ -20,20 +20,25 @@ class KeepAliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val channelId = "goutou_keepalive"
-        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(channelId, "狗头军师运行中", NotificationManager.IMPORTANCE_MIN)
-            ch.setShowBadge(false)
-            nm.createNotificationChannel(ch)
+        // 保活服务与无障碍服务同进程：这里任何异常都会杀死进程 → 系统关开关。
+        runCatching {
+            val channelId = "goutou_keepalive"
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val ch = NotificationChannel(channelId, "狗头军师运行中", NotificationManager.IMPORTANCE_MIN)
+                ch.setShowBadge(false)
+                nm.createNotificationChannel(ch)
+            }
+            val notif: Notification = Notification.Builder(this, channelId)
+                .setContentTitle("狗头军师运行中")
+                .setContentText("在聊天旁读消息、给回复建议")
+                .setSmallIcon(android.R.drawable.ic_menu_edit)
+                .setOngoing(true)
+                .build()
+            startForeground(1, notif)
+        }.onFailure {
+            android.util.Log.e("GOUTOU", "keepalive onCreate failed: ${it.message}")
         }
-        val notif: Notification = Notification.Builder(this, channelId)
-            .setContentTitle("狗头军师运行中")
-            .setContentText("在聊天旁读消息、给回复建议")
-            .setSmallIcon(android.R.drawable.ic_menu_edit)
-            .setOngoing(true)
-            .build()
-        startForeground(1, notif)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
