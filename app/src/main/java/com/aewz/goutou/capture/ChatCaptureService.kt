@@ -1250,24 +1250,33 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        leaveConversation()
-        overlay?.hide()
+        try {
+            leaveConversation()
+            overlay?.hide()
+        } catch (t: Throwable) {
+            Log.e(TAG, "onInterrupt crashed: ${t.javaClass.simpleName} ${t.message}")
+        }
     }
 
     override fun onDestroy() {
         if (instance === this) instance = null
         destroyed = true
-        getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
-            .unregisterOnSharedPreferenceChangeListener(preferencesListener)
-        leaveConversation()
-        main.removeCallbacksAndMessages(null)
+        // 生命周期出口兜底：这里崩溃同样会杀死进程 → 系统自动关无障碍开关。
+        try {
+            getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(preferencesListener)
+            leaveConversation()
+            main.removeCallbacksAndMessages(null)
+            // Tear the overlay down and cut its callback so a stale button tap can
+            // never call back into this dead instance.
+            overlay?.onManualAnalyze = null
+            overlay?.onSaveContact = null
+            overlay?.onOcrCapture = null
+            overlay?.hide()
+        } catch (t: Throwable) {
+            Log.e(TAG, "onDestroy cleanup crashed: ${t.javaClass.simpleName} ${t.message}")
+        }
         super.onDestroy()
-        // Tear the overlay down and cut its callback so a stale button tap can
-        // never call back into this dead instance.
-        overlay?.onManualAnalyze = null
-        overlay?.onSaveContact = null
-        overlay?.onOcrCapture = null
-        overlay?.hide()
         overlay = null
         worker.shutdownNow()
     }

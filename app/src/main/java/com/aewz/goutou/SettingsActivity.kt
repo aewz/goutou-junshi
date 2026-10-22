@@ -43,10 +43,12 @@ class SettingsActivity : AppCompatActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
-    private val accent = P.BRAND
-    private val ink = P.PAPER
-    private val sub = P.SUB
-    private val pillOff = P.CARD
+    // getter 而非字段初始化：字段初始化发生在 attachBaseContext 之前，
+    // 那时访问 Context.resources 会 NPE（点设置即闪退的根因）。
+    private val accent get() = P.BRAND
+    private val ink get() = P.PAPER
+    private val sub get() = P.SUB
+    private val pillOff get() = P.CARD
 
     /** Selected provider index per card, held so Save can read it back. */
     private var judgeProviderIdx = 0
