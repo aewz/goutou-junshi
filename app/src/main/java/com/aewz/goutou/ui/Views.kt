@@ -77,6 +77,9 @@ object Views {
         TextView(ctx).apply {
             text = t; setTextColor(color); textSize = size
             if (bold) setTypeface(typeface, Typeface.BOLD)
+            // 默认 WRAP/WRAP：调用方强转 layoutParams 前不为 null（避免 NPE 闪退）
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
     fun rowText(ctx: Context, t: String, size: Float = 14f, color: Int = Palette.of(ctx).PAPER, bold: Boolean = false) =
@@ -157,6 +160,8 @@ object Views {
             setTextColor(textColor)
             background = round(ctx, 8, color)
             setPadding(dp(ctx, 8), dp(ctx, 3), dp(ctx, 8), dp(ctx, 3))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT)
         }
 
     /** 胶囊开关；tag 存 Boolean。 */

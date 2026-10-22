@@ -23,7 +23,7 @@ android {
         applicationId = "com.aewz.goutou"
         minSdk = 30
         targetSdk = 35
-        versionCode = 17
+        versionCode = 18
         versionName = "1.2.0"
 
         // ML Kit's bundled Chinese recognizer ships native libs for every ABI.

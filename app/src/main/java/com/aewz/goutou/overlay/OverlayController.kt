@@ -112,10 +112,11 @@ class OverlayController(private val ctx: Context) {
     private val screenH get() = ctx.resources.displayMetrics.heightPixels
     private val cardW get() = minOf(screenW - dp(16), dp(380))
 
-    /** Card background: white with the user's opacity so the chat shows through. */
+    /** 卡片底色：跟随系统深浅色（色板 CARD），叠加用户设置的不透明度透出聊天。 */
     private fun panelBg(): Int {
         val a = (prefs.overlayOpacity / 100f * 255).roundToInt().coerceIn(150, 255)
-        return Color.argb(a, 255, 255, 255)
+        val c = P.CARD
+        return Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
     }
 
     private fun card(radius: Int, color: Int, stroke: Boolean = false, strokeColor: Int = P.LINE, strokeW: Int = 1) =
