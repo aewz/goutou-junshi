@@ -19,26 +19,34 @@ import com.aewz.goutou.ui.Palette
 import com.aewz.goutou.ui.Views
 
 /**
- * 知识库管理页：笔记 + 联系人。数据全在本机 `filesDir/kb`。
- * 「军帐夜谈」深色风格，使用共享视图套件 [Views]。
+ * 知识库（三合一）：笔记 / 联系人 / 军师资料。
+ * 军师资料 = 随包打包的参考资料（assets/goutou），分类浏览 + 搜索 + 详情预览。
+ * 数据全部本机（filesDir/kb 与 assets），不上传。
  */
 class KnowledgeActivity : AppCompatActivity() {
 
     private lateinit var store: KbStore
     private lateinit var container: LinearLayout
 
-    /** 0 = notes, 1 = contacts. */
+    /** 0 = 笔记, 1 = 联系人, 2 = 军师资料. */
     private var tab = 0
+    private var query = ""
+    private var category = ""          // "" 全部 / "knowledge" / "practical"
+    private var files: List<String> = emptyList()
+    private var detailPath: String? = null
+
+    /** 当前深浅模式的色板。 */
+    private val P get() = Palette.of(this)
 
     private fun dp(v: Int) = Views.dp(this, v)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         store = KbStore.get(this)
-
+        files = listAssetFiles("").sorted()
         val scroll = ScrollView(this)
         container = Views.page(this)
-        container.padForSystemBars()   // edge-to-edge: keep the title off the status bar
+        container.padForSystemBars()
         scroll.addView(container)
         setContentView(scroll)
         render()
@@ -48,11 +56,15 @@ class KnowledgeActivity : AppCompatActivity() {
 
     private fun render() {
         container.removeAllViews()
-        container.addView(Views.title(this, "知识库与联系人"))
+        container.addView(Views.title(this, "知识库"))
         container.addView(Views.rowText(this, "只存在本机，不上传。分析时按会话标题匹配联系人、按关键词命中笔记。",
-            12f, Palette.SUB).apply { setPadding(0, dp(6), 0, dp(4)) })
+            12f, P.SUB).apply { setPadding(0, dp(4), 0, dp(4)) })
         container.addView(tabs())
-        if (tab == 0) renderNotes() else renderContacts()
+        when (tab) {
+            0 -> renderNotes()
+            1 -> renderContacts()
+            else -> renderAdvisorLib()
+        }
     }
 
     private fun tabs(): View {
@@ -62,19 +74,17 @@ class KnowledgeActivity : AppCompatActivity() {
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(12) }
         }
-        listOf("笔记", "联系人").forEachIndexed { i, name ->
+        listOf("笔记", "联系人", "军师资料").forEachIndexed { i, name ->
             val t = Views.text(this, name, 13f,
-                if (i == tab) Palette.BRAND else Palette.SUB,
-                bold = i == tab).apply {
+                if (i == tab) P.BRAND else P.SUB, bold = i == tab).apply {
                 gravity = Gravity.CENTER
-                setPadding(dp(18), dp(8), dp(18), dp(8))
+                setPadding(dp(16), dp(8), dp(16), dp(8))
                 background = Views.round(this@KnowledgeActivity, 9,
-                    if (i == tab) Palette.BRAND_DIM else Palette.CARD,
-                    stroke = i == tab)
+                    if (i == tab) P.BRAND_DIM else P.CARD, stroke = i == tab)
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT).apply { rightMargin = dp(8) }
-                setOnClickListener { tab = i; render() }
+                setOnClickListener { tab = i; query = ""; detailPath = null; render() }
             }
             row.addView(t)
         }
@@ -88,7 +98,8 @@ class KnowledgeActivity : AppCompatActivity() {
         container.addView(twoButtons("新建笔记", { editNoteDialog(null) },
             "从文本导入", { importNotesDialog() }))
         if (notes.isEmpty()) {
-            container.addView(emptyCard("还没有笔记。写点该记住的事实：习惯、忌口、项目代号、约定过的时间。"))
+            container.addView(Views.emptyState(this, "还没有笔记",
+                "写点该记住的事实：习惯、忌口、项目代号、约定过的时间。分析时命中即自动带上。"))
             return
         }
         notes.forEach { container.addView(noteRow(it)) }
@@ -98,7 +109,9 @@ class KnowledgeActivity : AppCompatActivity() {
     }
 
     private fun noteRow(n: Note): View {
-        val c = card()
+        val c = Views.card(this).apply {
+            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(10)
+        }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
         }
@@ -107,11 +120,11 @@ class KnowledgeActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         val head = n.title.ifBlank { "（无标题）" } + if (n.alwaysOn) "  · 常驻" else ""
-        left.addView(Views.rowText(this, head, 15f, Palette.PAPER, bold = true))
+        left.addView(Views.rowText(this, head, 15f, P.PAPER, bold = true))
         left.addView(Views.rowText(this,
             if (n.tags.isEmpty()) "无标签" else "标签：" + n.tags.joinToString("、"),
-            12f, Palette.SUB).apply { setPadding(0, dp(3), 0, 0) })
-        left.addView(Views.rowText(this, n.content.replace("\n", " ").take(46), 12f, Palette.SUB)
+            12f, P.SUB).apply { setPadding(0, dp(3), 0, 0) })
+        left.addView(Views.rowText(this, n.content.replace("\n", " ").take(46), 12f, P.SUB)
             .apply { setPadding(0, dp(3), 0, 0) })
         row.addView(left)
         row.addView(smallToggle(n.enabled) {
@@ -154,8 +167,7 @@ class KnowledgeActivity : AppCompatActivity() {
                 }
                 store.saveNote(Note(
                     id = existing?.id ?: KbStore.newId(),
-                    title = title,
-                    content = content,
+                    title = title, content = content,
                     tags = splitTags(tagsEdit.text.toString()),
                     alwaysOn = (alwaysRow.tag as? Boolean) ?: false,
                     enabled = (enabledRow.tag as? Boolean) ?: true
@@ -207,8 +219,8 @@ class KnowledgeActivity : AppCompatActivity() {
         val contacts = store.contacts().sortedByDescending { it.updatedAt }
         container.addView(twoButtons("新建联系人", { editContactDialog(null) }, null, null))
         if (contacts.isEmpty()) {
-            container.addView(emptyCard(
-                "还没有联系人。也可以在聊天里长按悬浮球，选「把当前会话存为联系人」。"))
+            container.addView(Views.emptyState(this, "还没有联系人",
+                "在聊天里长按悬浮球，选「把当前会话存为联系人」，或在这里手动新建。"))
             return
         }
         contacts.forEach { container.addView(contactRow(it)) }
@@ -218,25 +230,27 @@ class KnowledgeActivity : AppCompatActivity() {
     }
 
     private fun contactRow(c0: Contact): View {
-        val c = card()
-        c.addView(Views.rowText(this, c0.name.ifBlank { "（无名）" }, 15f, Palette.PAPER, bold = true))
+        val c = Views.card(this).apply {
+            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(10)
+        }
+        c.addView(Views.rowText(this, c0.name.ifBlank { "（无名）" }, 15f, P.PAPER, bold = true))
         if (c0.aliases.isNotEmpty())
-            c.addView(Views.rowText(this, "别名：" + c0.aliases.joinToString("、"), 12f, Palette.SUB)
+            c.addView(Views.rowText(this, "别名：" + c0.aliases.joinToString("、"), 12f, P.SUB)
                 .apply { setPadding(0, dp(3), 0, 0) })
         if (c0.apps.isNotEmpty())
-            c.addView(Views.rowText(this, "来源：" + c0.apps.joinToString("、") { appLabel(it) }, 12f, Palette.SUB)
+            c.addView(Views.rowText(this, "来源：" + c0.apps.joinToString("、") { appLabel(it) }, 12f, P.SUB)
                 .apply { setPadding(0, dp(3), 0, 0) })
         if (c0.relationship.isNotBlank())
-            c.addView(Views.rowText(this, "关系：" + c0.relationship.replace("\n", " ").take(40), 12f, Palette.SUB)
+            c.addView(Views.rowText(this, "关系：" + c0.relationship.replace("\n", " ").take(40), 12f, P.SUB)
                 .apply { setPadding(0, dp(3), 0, 0) })
         if (c0.notes.isNotBlank())
-            c.addView(Views.rowText(this, "备注：" + c0.notes.replace("\n", " ").take(40), 12f, Palette.SUB)
+            c.addView(Views.rowText(this, "备注：" + c0.notes.replace("\n", " ").take(40), 12f, P.SUB)
                 .apply { setPadding(0, dp(3), 0, 0) })
 
         val logN = store.logSize(c0.id)
         val clear = TextView(this).apply {
             text = "清空此人历史（$logN 条）"
-            textSize = 12.5f; setTextColor(Palette.DANGER); setTypeface(typeface, Typeface.BOLD)
+            textSize = 12.5f; setTextColor(P.DANGER); setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(10), 0, dp(2))
             setOnClickListener {
                 if (logN == 0) { toast("本来就没有历史"); return@setOnClickListener }
@@ -303,6 +317,125 @@ class KnowledgeActivity : AppCompatActivity() {
         else -> pkg
     }
 
+    // ------------------------------------------------------- 军师资料（assets）
+
+    private fun renderAdvisorLib() {
+        // 详情视图
+        detailPath?.let { renderAdvisorDetail(it); return }
+
+        // 搜索框
+        val searchRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, 0)
+        }
+        val search = Views.editBox(this, query, hint = "搜索文件名").apply {
+            inputType = InputType.TYPE_CLASS_TEXT
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        searchRow.addView(search)
+        searchRow.addView(Views.ghostBtn(this, "搜索") {
+            query = search.text.toString().trim(); render()
+        })
+        container.addView(searchRow)
+
+        // 分类筛选
+        val catRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(8), 0, 0)
+        }
+        listOf("" to "全部", "knowledge" to "知识", "practical" to "实操").forEachIndexed { i, (v, name) ->
+            val on = category == v
+            catRow.addView(Views.text(this, name, 12f, if (on) P.BRAND else P.SUB, bold = on).apply {
+                gravity = Gravity.CENTER
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                background = Views.round(this@KnowledgeActivity, 9, if (on) P.BRAND_DIM else P.CARD, stroke = on)
+                (layoutParams as LinearLayout.LayoutParams).rightMargin = dp(8)
+                setOnClickListener { category = v; render() }
+            })
+        }
+        container.addView(catRow)
+
+        val shown = files.filter { f ->
+            (category.isEmpty() || f.startsWith("$category/")) &&
+                (query.isBlank() || f.contains(query, ignoreCase = true))
+        }
+        container.addView(Views.rowText(this, "共 ${files.size} 份 · 命中 ${shown.size} 份",
+            11f, P.FAINT).apply { setPadding(0, dp(10), 0, 0) })
+        if (files.isEmpty()) {
+            container.addView(Views.errorState(this, "军师资料读取失败（assets 缺失）") { render() })
+            return
+        }
+        if (shown.isEmpty()) {
+            container.addView(Views.emptyState(this, "没有匹配的资料", "换个关键词或分类试试。"))
+            return
+        }
+        shown.forEach { container.addView(advisorRow(it)) }
+    }
+
+    private fun advisorRow(path: String): View {
+        val c = Views.card(this).apply {
+            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8)
+            setOnClickListener { detailPath = path; render() }
+        }
+        c.addView(Views.rowText(this, displayName(path), 15f, P.PAPER, bold = true))
+        c.addView(Views.rowText(this, path, 11f, P.FAINT).apply { setPadding(0, dp(3), 0, 0) })
+        previewOf(path)?.let { pv ->
+            c.addView(Views.rowText(this, pv.replace("\n", " ").take(60), 12f, P.SUB)
+                .apply { setPadding(0, dp(4), 0, 0) })
+        }
+        return c
+    }
+
+    private fun renderAdvisorDetail(path: String) {
+        val content = try {
+            assets.open("goutou/$path").bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (e: Exception) {
+            "读取失败：${e.message}"
+        }
+        container.addView(Views.rowText(this, "← 返回列表", 14f, P.BRAND, bold = true).apply {
+            setPadding(0, 0, 0, dp(6))
+            setOnClickListener { detailPath = null; render() }
+        })
+        container.addView(Views.rowText(this, displayName(path), 20f, P.PAPER, bold = true))
+        container.addView(Views.rowText(this, path, 11f, P.FAINT).apply {
+            setPadding(0, dp(4), 0, dp(10))
+        })
+        container.addView(Views.rowText(this, stripFrontmatter(content), 14f, P.PAPER).apply {
+            setLineSpacing(dp(3).toFloat(), 1f)
+            setTextIsSelectable(true)
+        })
+    }
+
+    /** Depth-first walk of assets/goutou; regular files only. */
+    private fun listAssetFiles(dir: String): List<String> {
+        val out = ArrayList<String>()
+        val root = if (dir.isEmpty()) "goutou" else "goutou/$dir"
+        val entries = try { assets.list(root) ?: emptyArray() } catch (e: Exception) { emptyArray() }
+        for (e in entries) {
+            val path = if (dir.isEmpty()) e else "$dir/$e"
+            val sub = try { assets.list("goutou/$path") ?: emptyArray() } catch (ex: Exception) { emptyArray() }
+            if (sub.isEmpty()) out.add(path) else out.addAll(listAssetFiles(path))
+        }
+        return out
+    }
+
+    private fun stripFrontmatter(raw: String): String {
+        val t = raw.trimStart('﻿')
+        if (!t.startsWith("---")) return raw
+        val end = t.indexOf("\n---", 3)
+        return if (end < 0) raw else t.substring(end + 4).trimStart('\n', '\r')
+    }
+
+    private fun previewOf(path: String): String? {
+        val content = try {
+            assets.open("goutou/$path").bufferedReader(Charsets.UTF_8).use { it.readText() }
+        } catch (e: Exception) { return null }
+        return stripFrontmatter(content).trim().lines().firstOrNull { it.isNotBlank() }
+    }
+
+    private fun displayName(path: String): String =
+        path.substringAfterLast('/').removeSuffix(".md")
+
     // ----------------------------------------------------------------- atoms
 
     private fun confirm(title: String, msg: String, onYes: () -> Unit) {
@@ -340,10 +473,10 @@ class KnowledgeActivity : AppCompatActivity() {
     private fun wideBtn(labelText: String, primary: Boolean, onClick: () -> Unit) = TextView(this).apply {
         text = labelText; textSize = 14f; gravity = Gravity.CENTER
         setTypeface(typeface, Typeface.BOLD)
-        setTextColor(if (primary) Palette.BRAND_ON else Palette.BRAND)
+        setTextColor(if (primary) P.BRAND_ON else P.BRAND)
         background = Views.round(this@KnowledgeActivity, 11,
-            if (primary) Palette.BRAND else Palette.CARD,
-            stroke = !primary, strokeColor = Palette.BRAND)
+            if (primary) P.BRAND else P.CARD,
+            stroke = !primary, strokeColor = P.BRAND)
         setPadding(dp(12), dp(11), dp(12), dp(11))
         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             .apply { rightMargin = dp(8) }
@@ -353,16 +486,9 @@ class KnowledgeActivity : AppCompatActivity() {
     private fun smallToggle(on: Boolean, onClick: () -> Unit) = TextView(this).apply {
         text = if (on) "开" else "关"; textSize = 13f; gravity = Gravity.CENTER
         setTypeface(typeface, Typeface.BOLD)
-        setTextColor(if (on) Palette.BRAND_ON else Palette.SUB)
-        background = Views.round(this@KnowledgeActivity, 10,
-            if (on) Palette.BRAND else Palette.LINE)
+        setTextColor(if (on) P.BRAND_ON else P.SUB)
+        background = Views.round(this@KnowledgeActivity, 10, if (on) P.BRAND else P.LINE)
         setPadding(dp(16), dp(6), dp(16), dp(6))
         setOnClickListener { onClick() }
-    }
-
-    private fun emptyCard(msg: String): View = card().apply { addView(Views.rowText(this@KnowledgeActivity, msg, 13f, Palette.SUB)) }
-
-    private fun card() = Views.card(this).apply {
-        (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(10)
     }
 }

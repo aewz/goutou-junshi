@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- M3 紫系 · 深色 -->
+    <color name="g_bg">#141118</color>
+    <color name="g_surface">#1E1A26</color>
+    <color name="g_surface_variant">#292436</color>
+    <color name="g_outline">#3A3450</color>
+    <color name="g_on_surface">#ECE7F5</color>
+    <color name="g_on_surface_var">#B3ACC6</color>
+    <color name="g_on_surface_faint">#7F7896</color>
+    <color name="g_primary">#B7A4F7</color>
+    <color name="g_primary_container">#3D2E78</color>
+    <color name="g_on_primary">#241743</color>
+    <color name="g_on_primary_container">#E9E2FD</color>
+    <color name="g_secondary">#8FB8F2</color>
+    <color name="g_tertiary">#E5B867</color>
+    <color name="g_tertiary_container">#3D3118</color>
+    <color name="g_error">#F28B8B</color>
+    <color name="g_error_container">#4A2626</color>
+    <color name="g_success">#7FC49D</color>
+    <color name="g_scrim">#99000000</color>
+</resources>

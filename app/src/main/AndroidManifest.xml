@@ -32,7 +32,11 @@
             android:exported="false" />
 
         <activity
-            android:name=".GoutouKnowledgeActivity"
+            android:name=".ModeActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".AnalysisActivity"
             android:exported="false" />
 
         <service

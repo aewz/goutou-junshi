@@ -13,38 +13,52 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.aewz.goutou.core.LastRound
 import com.aewz.goutou.core.Prefs
 import com.aewz.goutou.ui.Palette
 import com.aewz.goutou.ui.Views
 
 /**
- * 主页 · 「军帐夜谈」风格：深色军帐底、发丝线描边卡、紫色主操作。
- * 内容：就绪状态卡、权限清单、设置入口、总开关。
+ * 主页：顶部（Logo + 模式 + 设置）· 聊天分析主入口 · 三模式快切 ·
+ * 最近分析状态 · 底部导航（首页 / 知识库 / 设置）。
  */
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
-    private lateinit var container: LinearLayout
-    private val a11yComponent =
-        "com.aewz.goutou/com.aewz.goutou.capture.ChatCaptureService"
+    private lateinit var content: LinearLayout
+    private val a11yComponent = "com.aewz.goutou/com.aewz.goutou.capture.ChatCaptureService"
+
+    /** 当前深浅模式的色板。 */
+    private val P get() = Palette.of(this)
+
+    private fun dp(v: Int) = Views.dp(this, v)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = Prefs(this)
 
-        val scroll = ScrollView(this)
-        container = Views.page(this)
-        container.padForSystemBars()   // edge-to-edge: keep the title off the status bar
-        scroll.addView(container)
-        setContentView(scroll)
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)   // 底部导航固定，内容滚动不遮挡
+        }
+        content = Views.page(this)
+        content.padForSystemBars()
+        scroll.addView(content)
+        root.addView(scroll)
+        // 底部导航
+        root.addView(Views.bottomNav(this, listOf(
+            Triple("⌂", "首页") { },   // 已在首页
+            Triple("▤", "知识库") { startActivity(Intent(this, KnowledgeActivity::class.java)) },
+            Triple("⚙", "设置") { startActivity(Intent(this, SettingsActivity::class.java)) }
+        ), selected = 0))
+        setContentView(root)
     }
 
     override fun onResume() {
         super.onResume()
         build()
     }
-
-    private fun dp(v: Int) = Views.dp(this, v)
 
     private fun modeName(): String = when (prefs.advisorMode) {
         Prefs.MODE_GOUTOU -> "狗头军师"
@@ -53,188 +67,170 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun build() {
-        container.removeAllViews()
+        content.removeAllViews()
 
-        // 渐变头卡：品牌区（紫渐变 + 白字）
-        val hero = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setBackgroundResource(R.drawable.bg_hero)
-            setPadding(dp(16), dp(16), dp(16), dp(16))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(4) }
+        // ---- 顶部：Logo + 名称 + 模式 + 设置
+        val head = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(4), 0, dp(10))
         }
-        hero.addView(TextView(this).apply {
-            text = "狗头军师"; textSize = 26f; setTextColor(android.graphics.Color.WHITE)
-            setTypeface(typeface, Typeface.BOLD); letterSpacing = 0.02f
+        head.addView(TextView(this).apply {
+            text = "军"; textSize = 20f; gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(P.BRAND_ON)
+            background = Views.round(this@MainActivity, 12, P.BRAND)
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42))
         })
-        hero.addView(Views.chip(this, "当前模式 · " + modeName(),
-            0x33FFFFFF, android.graphics.Color.WHITE).apply {
-            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8)
+        head.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                .apply { leftMargin = dp(10) }
+            addView(Views.rowText(this@MainActivity, "狗头军师", 20f, P.PAPER, bold = true))
+            addView(Views.chip(this@MainActivity, modeName(), P.BRAND_DIM, P.BRAND).apply {
+                (layoutParams as LinearLayout.LayoutParams).topMargin = dp(4)
+            })
         })
-        hero.addView(Views.rowText(this,
-            "在聊天 App 旁读对方消息（已支持 QQ、X、飞书、WhatsApp），给出判断和候选回复。发送始终由你手动点。",
-            12.5f, android.graphics.Color.WHITE).apply {
-            alpha = 0.92f
-            setPadding(0, dp(10), 0, 0)
+        head.addView(Views.ghostBtn(this, "⚙ 设置") {
+            startActivity(Intent(this, SettingsActivity::class.java))
         })
-        container.addView(hero)
+        content.addView(head)
 
-        val a11y = isA11yEnabled()
-        val overlay = Settings.canDrawOverlays(this)
-        val key = prefs.hasKey()   // judge route key: the one analysis cannot run without
-        val ready = a11y && overlay && key
+        // ---- 主功能入口：聊天分析
+        val ready = isA11yEnabled() && Settings.canDrawOverlays(this)
+        val entry = Views.card(this, raised = true)
+        entry.addView(Views.rowText(this, "聊天分析", 17f, P.PAPER, bold = true))
+        entry.addView(Views.rowText(this,
+            "在已支持的聊天 App（QQ / X / 飞书 / WhatsApp）里收到新消息时，悬浮窗自动给出判断与候选回复。发送始终由你手动点。",
+            12.5f, P.SUB).apply { setPadding(0, dp(4), 0, 0) })
+        val statusRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(8), 0, 0)
+        }
+        statusRow.addView(View(this).apply {
+            background = Views.round(this@MainActivity, 4, if (ready) P.OK else P.DANGER)
+            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { rightMargin = dp(6) }
+        })
+        statusRow.addView(Views.rowText(this, if (ready) "已就绪" else "未就绪（无障碍/悬浮窗）", 13f, P.SUB))
+        entry.addView(statusRow)
+        entry.addView(Views.primaryBtn(this, if (ready) "查看最近分析" else "去开启权限") {
+            if (ready) startActivity(Intent(this, AnalysisActivity::class.java))
+            else startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        })
+        content.addView(entry)
 
-        // 就绪状态
-        container.addView(statusCard(ready, a11y, overlay, key))
-        container.addView(privacyHint())
-        container.addView(platformRiskHint())
-
-        // 权限清单
-        container.addView(Views.section(this, "权限设置"))
-        container.addView(permCard("无障碍权限", "读取当前聊天窗口的消息文字（每次升级安装后需重开）", a11y) {
-            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-        })
-        container.addView(permCard("悬浮窗权限", "在聊天窗口上方显示分析卡片", overlay) {
-            startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
-        })
-        container.addView(permCard("自启动 + 省电无限制", "小米/HyperOS 必做，否则服务被冻结、读不到消息", null) {
-            runCatching {
-                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-            }
-        })
-        // Android 13+ 侧载安装：系统会拦「受限设置」，无障碍开关开了也可能被自动关掉。
-        if (!a11y && isSideloaded()) {
-            container.addView(permCard("受限设置（Android 13+）",
-                "侧载安装的 App 需在应用详情里允许「受限设置」，否则无障碍开关可能被系统自动关掉", null) {
-                runCatching {
-                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
+        // ---- 三模式快捷切换（切换仅保存偏好，不触发任何 AI 请求）
+        content.addView(Views.section(this, "分析模式"))
+        val modeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf(
+            Triple(Prefs.MODE_CLASSIC, "经典", "判断 + 排序"),
+            Triple(Prefs.MODE_GOUTOU, "军师", "人格 + 简析"),
+            Triple(Prefs.MODE_HYBRID, "混合", "双引擎对比")
+        ).forEachIndexed { i, (m, name, desc) ->
+            val on = prefs.advisorMode == m
+            val c = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                background = Views.round(this@MainActivity, 12, if (on) P.BRAND_DIM else P.CARD, stroke = true,
+                    strokeColor = if (on) P.BRAND else P.LINE)
+                setPadding(dp(8), dp(10), dp(8), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    .apply { rightMargin = if (i < 2) dp(8) else 0 }
+                setOnClickListener {
+                    prefs.advisorMode = m
+                    Toast.makeText(this@MainActivity, "已切换为「$name」模式", Toast.LENGTH_SHORT).show()
+                    build()
                 }
+            }
+            c.addView(Views.rowText(this, name, 14f, if (on) P.BRAND else P.PAPER, bold = true))
+            c.addView(Views.rowText(this, desc, 11f, P.SUB).apply { setPadding(0, dp(2), 0, 0) })
+            modeRow.addView(c)
+        }
+        content.addView(modeRow)
+        content.addView(Views.textBtn(this, "模式详情 ›", P.BRAND) {
+            startActivity(Intent(this, ModeActivity::class.java))
+        })
+
+        // ---- 最近一次分析状态
+        content.addView(Views.section(this, "最近分析"))
+        if (LastRound.hasResult) {
+            val c = Views.card(this)
+            c.setOnClickListener { startActivity(Intent(this, AnalysisActivity::class.java)) }
+            val lr = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            }
+            lr.addView(LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                addView(Views.rowText(this@MainActivity, LastRound.title ?: "未知会话", 14.5f, P.PAPER, bold = true))
+                addView(Views.rowText(this@MainActivity,
+                    "${modeNameOf(LastRound.mode)} · ${LastRound.totalReplies} 条候选", 12f, P.SUB)
+                    .apply { setPadding(0, dp(3), 0, 0) })
+            })
+            lr.addView(Views.rowText(this, "›", 22f, P.BRAND))
+            c.addView(lr)
+            content.addView(c)
+        } else {
+            content.addView(Views.card(this).apply {
+                addView(Views.rowText(this@MainActivity,
+                    "还没有分析记录。打开一个聊天 App，对方来消息后悬浮窗会自动分析；也可以点悬浮球手动「截屏识别一次」。",
+                    12.5f, P.SUB))
             })
         }
 
-        // 其他
-        container.addView(Views.section(this, "其他"))
-        container.addView(actionRow("设置", "密钥 · 模型 · 关系 · 透明度 · 会话白名单") {
-            startActivity(Intent(this, SettingsActivity::class.java))
-        })
-
-        // 总开关
-        val toggle = TextView(this).apply {
-            text = if (prefs.enabled) "助手已开启 · 点击关闭" else "助手已关闭 · 点击开启"
-            textSize = 15f; gravity = Gravity.CENTER; setTypeface(typeface, Typeface.BOLD)
-            setTextColor(if (prefs.enabled) Palette.BRAND_ON else Palette.BRAND)
-            background = Views.round(this@MainActivity, 12, if (prefs.enabled) Palette.BRAND else Palette.BRAND_DIM,
-                stroke = !prefs.enabled)
-            setPadding(dp(16), dp(15), dp(16), dp(15))
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(18) }
+        // ---- 权限区（未就绪时才完整展示）
+        content.addView(Views.section(this, "权限与状态"))
+        if (!ready) {
+            content.addView(permRow("无障碍权限", "读当前聊天窗口文字", isA11yEnabled()) {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            })
+            content.addView(permRow("悬浮窗权限", "显示分析卡片", Settings.canDrawOverlays(this)) {
+                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName")))
+            })
+            if (!isA11yEnabled() && isSideloaded()) {
+                content.addView(permRow("受限设置（Android 13+）", "侧载安装需允许，否则开关会被自动关", false) {
+                    runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+                })
+            }
+            content.addView(permRow("自启动 + 省电无限制", "小米/HyperOS 必做", false) {
+                runCatching { startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName"))) }
+            })
         }
-        toggle.setOnClickListener {
+        // 总开关
+        val master = Views.primaryBtn(this, if (prefs.enabled) "助手已开启 · 点击关闭" else "助手已关闭 · 点击开启") {
             prefs.enabled = !prefs.enabled
             build()
         }
-        container.addView(toggle)
-    }
-
-    // ---------------------------------------------------------------- cards
-
-    private fun statusCard(ready: Boolean, a11y: Boolean, overlay: Boolean, key: Boolean): View {
-        val c = Views.card(this, raised = true).apply {
-            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(6)
-        }
-        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        head.addView(View(this).apply {
-            background = Views.round(this@MainActivity, 5, if (ready) Palette.OK else Palette.DANGER)
-            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { rightMargin = dp(10) }
+        content.addView(master)
+        content.addView(Views.rowText(this, "读取的内容只发往你自己配置的接口 · 隐私政策", 11f, P.FAINT).apply {
+            setPadding(dp(2), dp(8), 0, 0)
+            setOnClickListener { openUrl(PRIVACY_URL) }
         })
-        head.addView(Views.rowText(this, if (ready) "已就绪，可以用了" else "尚未就绪", 16f,
-            if (ready) Palette.OK else Palette.PAPER, bold = true))
-        c.addView(head)
-        c.addView(checkLine("无障碍", a11y))
-        c.addView(checkLine("悬浮窗", overlay))
-        c.addView(checkLine("密钥", key, okWord = "已设", noWord = "未设"))
-        // History recording is opt-in (off by default). Mention it here, never block on it.
-        if (!prefs.contextEnabled) {
-            c.addView(Views.hintText(this, "关联上下文未开启，可在设置里开启").apply {
-                setPadding(0, dp(8), 0, 0)
-            })
-        }
-        return c
     }
 
-    /** One tappable line under the readiness card, opening the privacy policy page. */
-    private fun privacyHint(): View = Views.text(this, "读取的聊天内容只发往你自己配置的接口 · 隐私政策", 11f, Palette.FAINT).apply {
-        setPadding(dp(2), dp(8), 0, 0)
-        setOnClickListener { openUrl(PRIVACY_URL) }
-    }
-
-    /** One line under the privacy hint: using it inside third-party chat apps is at the user's own risk. */
-    private fun platformRiskHint(): View =
-        Views.text(this, "在第三方聊天 App 里使用可能不符合其用户协议，账号有被限制的风险，请自行判断", 11f, Palette.FAINT).apply {
-            setPadding(dp(2), dp(4), 0, 0)
-        }
-
-    /** Opens an external link; swallows the failure with a toast rather than crashing. */
-    private fun openUrl(url: String) {
-        runCatching {
-            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }.onFailure {
-            Toast.makeText(this, "打不开浏览器", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun checkLine(label: String, ok: Boolean, okWord: String = "已开", noWord: String = "未开"): View {
+    private fun permRow(title: String, desc: String, ok: Boolean, onClick: () -> Unit): View {
+        val c = Views.card(this)
+        c.setOnClickListener { onClick() }
         val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(5), 0, 0)
         }
-        row.addView(Views.text(this, if (ok) "✓" else "✗", 14f, if (ok) Palette.OK else Palette.DANGER, bold = true).apply {
-            width = dp(22)
+        row.addView(View(this).apply {
+            background = Views.round(this@MainActivity, 4, if (ok) P.OK else P.DANGER)
+            layoutParams = LinearLayout.LayoutParams(dp(8), dp(8)).apply { rightMargin = dp(10) }
         })
-        row.addView(Views.text(this, label + (if (ok) okWord else noWord), 13f, Palette.SUB))
-        return row
-    }
-
-    private fun permCard(title: String, desc: String, granted: Boolean?, onClick: () -> Unit): View {
-        val c = Views.card(this).apply {
-            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8)
-        }
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val left = LinearLayout(this).apply {
+        row.addView(LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        left.addView(Views.rowText(this, title, 15f, Palette.PAPER, bold = true))
-        left.addView(Views.rowText(this, desc, 12f, Palette.SUB).apply { setPadding(0, dp(3), 0, 0) })
-        if (granted == true) left.addView(Views.rowText(this, "✓ 已开启", 12f, Palette.OK, bold = true).apply { setPadding(0, dp(4), 0, 0) })
-        row.addView(left)
-        val b = Views.ghostBtn(this, if (granted == true) "已开启" else "去开启") {
-            if (granted != true) onClick()
-        }
-        if (granted == true) b.setTextColor(Palette.SUB)
-        row.addView(b)
+            addView(Views.rowText(this@MainActivity, title, 14.5f, P.PAPER, bold = true))
+            addView(Views.rowText(this@MainActivity, desc, 12f, P.SUB))
+        })
+        row.addView(Views.rowText(this, if (ok) "✓" else "›", 18f, if (ok) P.OK else P.BRAND, bold = true))
         c.addView(row)
         return c
     }
 
-    private fun actionRow(title: String, desc: String, onClick: () -> Unit): View {
-        val c = Views.card(this).apply {
-            (layoutParams as? LinearLayout.LayoutParams)?.topMargin = dp(8)
-            setOnClickListener { onClick() }
-        }
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val left = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        left.addView(Views.rowText(this, title, 15f, Palette.PAPER, bold = true))
-        left.addView(Views.rowText(this, desc, 12f, Palette.SUB).apply { setPadding(0, dp(3), 0, 0) })
-        row.addView(left)
-        row.addView(Views.text(this, "›", 22f, Palette.BRAND))
-        c.addView(row)
-        return c
+    private fun modeNameOf(m: String?): String = when (m) {
+        Prefs.MODE_GOUTOU -> "狗头军师"
+        Prefs.MODE_HYBRID -> "混合"
+        else -> "经典"
     }
 
     private fun isA11yEnabled(): Boolean {
@@ -243,10 +239,15 @@ class MainActivity : AppCompatActivity() {
         return enabled.contains(a11yComponent)
     }
 
-    /** 侧载安装（非应用商店）——受限设置拦截的判断依据。 */
     private fun isSideloaded(): Boolean {
         val installer = runCatching { packageManager.getInstallerPackageName(packageName) }.getOrNull()
         return installer.isNullOrBlank() || installer == "adb"
+    }
+
+    private fun openUrl(url: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }.onFailure { Toast.makeText(this, "打不开浏览器", Toast.LENGTH_SHORT).show() }
     }
 
     companion object {

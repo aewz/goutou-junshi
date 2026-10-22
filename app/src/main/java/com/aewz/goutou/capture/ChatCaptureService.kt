@@ -16,6 +16,7 @@ import com.aewz.goutou.capture.ocr.OcrLine
 import com.aewz.goutou.capture.ocr.ScreenCapture
 import com.aewz.goutou.core.BubbleRect
 import com.aewz.goutou.core.ChatSnapshot
+import com.aewz.goutou.core.LastRound
 import com.aewz.goutou.core.Msg
 import com.aewz.goutou.core.Prefs
 import com.aewz.goutou.core.RankedReply
@@ -255,6 +256,41 @@ open class ChatCaptureService : AccessibilityService() {
      *  re-appears next visit but does not re-pop on every event. */
     private var blockedNoticeShown = false
 
+    // -------------------------------------------------------- 页面桥
+
+    /** 结果页「填入」：把候选填入当前会话输入框；会话已变化则提示。 */
+    fun fillFromPage(text: String) {
+        main.post {
+            val t = session.token()
+            if (t == null) {
+                overlay?.toast("当前不在聊天会话里，请回到聊天再填")
+                return@post
+            }
+            if (!isCurrent(t)) {
+                overlay?.toast("会话已变化，请回到刚才的聊天再填")
+                return@post
+            }
+            fillInput(t, text)
+        }
+    }
+
+    /** 结果页「重新生成」：对最近一轮重出候选；不在会话中则提示。 */
+    fun regenerateFromPage() {
+        main.post {
+            val t = session.token()
+            if (t == null || !isCurrent(t)) {
+                overlay?.toast("当前不在刚才的聊天会话里")
+                return@post
+            }
+            regenerateReplies()
+        }
+    }
+
+    /** 结果页「取消分析」。 */
+    fun cancelFromPage() {
+        main.post { cancelAnalysis() }
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         // 兜底：连接初始化崩溃会直接打掉无障碍服务。
@@ -264,6 +300,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     private fun connect() {
+        instance = this
         prefs = Prefs(this)
         getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
             .registerOnSharedPreferenceChangeListener(preferencesListener)
@@ -518,7 +555,10 @@ open class ChatCaptureService : AccessibilityService() {
                 main.post {
                     regenerating = false
                     if (isCurrent(token)) {
-                        overlay?.showReplies(drafts.map { RankedReply(it, 0.0, "goutou") }, replyError) { text -> fillInput(token, text) }
+                        LastRound.replies = drafts.map { RankedReply(it, 0.0, "goutou") }
+                        LastRound.replyError = replyError
+                        LastRound.finish()
+                        overlay?.showReplies(LastRound.replies, replyError) { text -> fillInput(token, text) }
                     }
                 }
             }
@@ -536,7 +576,12 @@ open class ChatCaptureService : AccessibilityService() {
                 }
                 main.post {
                     regenerating = false
-                    if (isCurrent(token)) overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
+                    if (isCurrent(token)) {
+                        LastRound.replies = ranked
+                        LastRound.replyError = replyError
+                        LastRound.finish()
+                        overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
+                    }
                 }
             }
         }
@@ -562,7 +607,10 @@ open class ChatCaptureService : AccessibilityService() {
             if (remaining > 0) return
             regenerating = false
             val merged = mergedGroupError(classicErr, gouErr)
-            if (isCurrent(token)) overlay?.showReplies(classic + gou, merged) { text -> fillInput(token, text) }
+            LastRound.replies = classic + gou
+            LastRound.replyError = merged
+            LastRound.finish()
+            if (isCurrent(token)) overlay?.showReplies(LastRound.replies, merged) { text -> fillInput(token, text) }
         }
         submitAnalysis {
             // No judge key → draft unranked; draftAndRank's ranking round would
@@ -664,6 +712,7 @@ open class ChatCaptureService : AccessibilityService() {
                 if (!isCurrent(token)) return@post
                 lastAnalyzed = snapshot
                 lastCtx = ctx
+                LastRound.beginRound(snapshot, snapshot.title, token.target.pkg, prefs.advisorMode)
                 overlay?.setContextInfo(ctx?.notes?.size ?: 0, ctx?.history?.size ?: 0)
                 when (prefs.advisorMode) {
                     Prefs.MODE_GOUTOU -> runGoutouRound(token, snapshot, rel, ctx, count, client)
@@ -710,9 +759,18 @@ open class ChatCaptureService : AccessibilityService() {
             main.post {
                 if (isCurrent(token)) {
                     when {
-                        judgment == null -> overlay?.showError("判断接口超时，请重试")
-                        judgment.error != null -> overlay?.showError(judgment.error)
-                        else -> overlay?.showJudgment(judgment)
+                        judgment == null -> {
+                            LastRound.analysisError = "判断接口超时"
+                            overlay?.showError("判断接口超时，请重试")
+                        }
+                        judgment.error != null -> {
+                            LastRound.analysisError = judgment.error
+                            overlay?.showError(judgment.error)
+                        }
+                        else -> {
+                            LastRound.judgment = judgment
+                            overlay?.showJudgment(judgment)
+                        }
                     }
                 }
                 // Outside the guard: a stale session must never strand
@@ -737,6 +795,9 @@ open class ChatCaptureService : AccessibilityService() {
             }
             main.post {
                 if (isCurrent(token)) {
+                    LastRound.replies = ranked
+                    LastRound.replyError = replyError
+                    LastRound.finish()
                     overlay?.showReplies(ranked, replyError) { text -> fillInput(token, text) }
                 }
                 completed() // outside the guard: see the judge round
@@ -766,8 +827,13 @@ open class ChatCaptureService : AccessibilityService() {
             }
             main.post {
                 if (isCurrent(token)) {
-                    if (note.isNotBlank()) overlay?.showAdvisorNote(note)
-                    else overlay?.showError("军师简析失败，请重试")
+                    if (note.isNotBlank()) {
+                        LastRound.advisorNote = note
+                        overlay?.showAdvisorNote(note)
+                    } else {
+                        LastRound.analysisError = "军师简析失败"
+                        overlay?.showError("军师简析失败，请重试")
+                    }
                 }
                 completed()
             }
@@ -786,7 +852,10 @@ open class ChatCaptureService : AccessibilityService() {
             }
             main.post {
                 if (isCurrent(token)) {
-                    overlay?.showReplies(drafts.map { RankedReply(it, 0.0, "goutou") }, replyError) { text -> fillInput(token, text) }
+                    LastRound.replies = drafts.map { RankedReply(it, 0.0, "goutou") }
+                    LastRound.replyError = replyError
+                    LastRound.finish()
+                    overlay?.showReplies(LastRound.replies, replyError) { text -> fillInput(token, text) }
                 }
                 completed()
             }
@@ -825,7 +894,10 @@ open class ChatCaptureService : AccessibilityService() {
         fun maybeMerge() {
             if (!classicDone || !gouDone) return
             val merged = mergedGroupError(classicErr, gouErr)
-            overlay?.showReplies(classic + gou, merged) { text -> fillInput(token, text) }
+            LastRound.replies = classic + gou
+            LastRound.replyError = merged
+            LastRound.finish()
+            overlay?.showReplies(LastRound.replies, merged) { text -> fillInput(token, text) }
         }
         if (judgeNeeded) submitAnalysis {
             val judgment = try {
@@ -837,9 +909,18 @@ open class ChatCaptureService : AccessibilityService() {
             main.post {
                 if (isCurrent(token)) {
                     when {
-                        judgment == null -> overlay?.showError("判断接口超时，请重试")
-                        judgment.error != null -> overlay?.showError(judgment.error)
-                        else -> overlay?.showJudgment(judgment)
+                        judgment == null -> {
+                            LastRound.analysisError = "判断接口超时"
+                            overlay?.showError("判断接口超时，请重试")
+                        }
+                        judgment.error != null -> {
+                            LastRound.analysisError = judgment.error
+                            overlay?.showError(judgment.error)
+                        }
+                        else -> {
+                            LastRound.judgment = judgment
+                            overlay?.showJudgment(judgment)
+                        }
                     }
                 }
                 completed()
@@ -1174,6 +1255,7 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        if (instance === this) instance = null
         destroyed = true
         getSharedPreferences(Prefs.PREFS_MAIN, MODE_PRIVATE)
             .unregisterOnSharedPreferenceChangeListener(preferencesListener)
@@ -1191,6 +1273,9 @@ open class ChatCaptureService : AccessibilityService() {
     }
 
     companion object {
+        /** 进程内单例：结果页借它做「填入 / 重新生成 / 取消」。 */
+        @Volatile var instance: ChatCaptureService? = null
+
         private const val TAG = "GOUTOU"
 
         /** Hard ceiling on one round's judge/reply HTTP. HttpURLConnection bounds

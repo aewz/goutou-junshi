@@ -25,6 +25,7 @@ import android.widget.Toast
 import com.aewz.goutou.core.Analysis
 import com.aewz.goutou.core.Prefs
 import com.aewz.goutou.core.RankedReply
+import com.aewz.goutou.ui.Palette
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -44,6 +45,9 @@ import kotlin.math.roundToInt
  * Long-pressing the card header opens the same menu.
  */
 class OverlayController(private val ctx: Context) {
+
+    /** 当前深浅模式的色板。 */
+    private val P get() = Palette.of(ctx)
 
     private val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val prefs = Prefs(ctx)
@@ -114,7 +118,7 @@ class OverlayController(private val ctx: Context) {
         return Color.argb(a, 255, 255, 255)
     }
 
-    private fun card(radius: Int, color: Int, stroke: Boolean = false, strokeColor: Int = Color.parseColor("#EAE7F6"), strokeW: Int = 1) =
+    private fun card(radius: Int, color: Int, stroke: Boolean = false, strokeColor: Int = P.LINE, strokeW: Int = 1) =
         GradientDrawable().apply {
             cornerRadius = dp(radius).toFloat()
             setColor(color)
@@ -207,19 +211,55 @@ class OverlayController(private val ctx: Context) {
             maxLines = 1
         }
         val head = TextView(ctx).apply {
-            textSize = 14f; setTextColor(Color.parseColor("#201A2E")); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
+            textSize = 14f; setTextColor(P.PAPER); maxLines = 1; ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(8), 0, dp(6), 0)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
-        val status = TextView(ctx).apply { textSize = 12f; setTextColor(Color.parseColor("#6B6483")); setPadding(0, 0, dp(6), 0) }
-        val chev = TextView(ctx).apply { textSize = 15f; setTextColor(Color.parseColor("#6B6483")) }
+        val status = TextView(ctx).apply { textSize = 12f; setTextColor(P.SUB); setPadding(0, 0, dp(6), 0) }
+        val chev = TextView(ctx).apply { textSize = 15f; setTextColor(P.SUB) }
+        // 最小化 / 关闭
+        val minBtn = TextView(ctx).apply {
+            text = "—"; textSize = 15f; setTextColor(P.SUB); setPadding(dp(8), 0, dp(6), 0)
+            setOnClickListener { setExpanded(false) }
+        }
+        val closeBtn = TextView(ctx).apply {
+            text = "✕"; textSize = 13f; setTextColor(P.SUB); setPadding(dp(4), 0, 0, 0)
+            setOnClickListener { hide() }
+        }
         header.addView(pill); header.addView(head); header.addView(status); header.addView(chev)
+        header.addView(minBtn); header.addView(closeBtn)
         attachDrag(header, widthPx = { cardW }, onTap = { onHeaderTap() }) { x, y -> app?.let { prefs.saveCardPosition(it, x, y) } }
 
         val scroll = MaxHeightScroll(ctx).apply { isVerticalScrollBarEnabled = false; visibility = View.GONE }
         val b = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), 0, dp(12), dp(12)) }
         scroll.addView(b)
         c.addView(header); c.addView(scroll)
+        // 底部高度调节手柄：上下拖动改变卡片最大高度
+        val grip = TextView(ctx).apply {
+            text = "⠿"; textSize = 14f; gravity = Gravity.CENTER
+            setTextColor(P.FAINT)
+            setPadding(0, dp(4), 0, dp(6))
+        }
+        var gripStartY = 0f
+        var gripStartH = 0
+        grip.setOnTouchListener { _, e ->
+            val s = bodyScroll ?: return@setOnTouchListener false
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    gripStartY = e.rawY; gripStartH = s.maxH; true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val dy = (e.rawY - gripStartY).toInt()
+                    val lo = dp(120)
+                    val hi = maxOf(lo, screenH - (lp?.y ?: dp(92)) - dp(150))
+                    s.maxH = (gripStartH + dy).coerceIn(lo, hi)
+                    s.requestLayout()
+                    true
+                }
+                else -> false
+            }
+        }
+        c.addView(grip)
 
         cardView = c; riskPill = pill; headText = head; statusText = status; chevron = chev
         bodyScroll = scroll; body = b
@@ -313,7 +353,7 @@ class OverlayController(private val ctx: Context) {
     private fun dismissMenu() { menuView?.let { root?.removeView(it) }; menuView = null }
 
     private fun menuItem(label: String, onClick: () -> Unit) = TextView(ctx).apply {
-        text = label; setTextColor(Color.parseColor("#201A2E")); textSize = 14f
+        text = label; setTextColor(P.PAPER); textSize = 14f
         setPadding(dp(12), dp(10), dp(12), dp(10)); setOnClickListener { onClick() }
     }
 
@@ -476,7 +516,7 @@ class OverlayController(private val ctx: Context) {
     private fun flashIfCollapsed() {
         val c = cardView ?: return
         if (expanded) return
-        c.background = card(16, panelBg(), stroke = true, strokeColor = Color.parseColor("#6C4CF1"), strokeW = 2)
+        c.background = card(16, panelBg(), stroke = true, strokeColor = P.BRAND, strokeW = 2)
         main.postDelayed({ cardView?.background = card(16, panelBg(), stroke = true) }, 900)
     }
 
@@ -494,12 +534,12 @@ class OverlayController(private val ctx: Context) {
         when {
             lvl != null -> {
                 pill.text = "${dangerWord(lvl)} $lvl/${a.dangerLevel!!.maxLevel}"
-                pill.setTextColor(if (lvl >= 6) Color.WHITE else Color.parseColor("#201A2E"))
+                pill.setTextColor(if (lvl >= 6) Color.WHITE else P.PAPER)
                 pill.background = card(10, dangerColor(lvl))
             }
-            errorMsg != null -> { pill.text = "出错"; pill.setTextColor(Color.WHITE); pill.background = card(10, Color.parseColor("#D64545")) }
+            errorMsg != null -> { pill.text = "出错"; pill.setTextColor(Color.WHITE); pill.background = card(10, P.DANGER) }
             advisorNote != null -> {
-                pill.text = "军师"; pill.setTextColor(Color.WHITE); pill.background = card(10, Color.parseColor("#6C4CF1"))
+                pill.text = "军师"; pill.setTextColor(Color.WHITE); pill.background = card(10, P.BRAND)
             }
             else -> {
                 // Idle / waiting: name the brain this round will actually use.
@@ -511,9 +551,9 @@ class OverlayController(private val ctx: Context) {
                 }
                 pill.setTextColor(Color.WHITE)
                 pill.background = card(10, when (mode) {
-                    Prefs.MODE_GOUTOU -> Color.parseColor("#6C4CF1")
-                    Prefs.MODE_HYBRID -> Color.parseColor("#C8892B")
-                    else -> Color.parseColor("#3F74C9")
+                    Prefs.MODE_GOUTOU -> P.BRAND
+                    Prefs.MODE_HYBRID -> P.GOLD
+                    else -> P.INFO_BLUE
                 })
             }
         }
@@ -544,15 +584,15 @@ class OverlayController(private val ctx: Context) {
         val a = judgment
         if (a != null) {
             a.trueIntent?.let {
-                b.addView(line("对方真实意图：${INTENT[it.choice] ?: it.choice}", "#201A2E", 14f, true))
+                b.addView(line("对方真实意图：${INTENT[it.choice] ?: it.choice}", P.PAPER, 14f, true))
                 b.addView(hint("把握 ${(it.confidence * 100).roundToInt()}%"))
             }
             val bits = ArrayList<String>()
             a.sheNeeds?.let { bits.add("要${NEEDS[it.choice] ?: it.choice}") }
             a.bestAction?.let { bits.add(ACTION[it.choice] ?: it.choice) }
             a.shouldReplyNow?.let { bits.add(if (it >= 0.5) "可给实质" else "先别给实质") }
-            if (bits.isNotEmpty()) b.addView(line(bits.joinToString("  ·  "), "#6B6483", 13f))
-            a.tensionResolved?.let { if (it >= 0.7) b.addView(line("✓ 紧张已缓解", "#27915C", 12f)) }
+            if (bits.isNotEmpty()) b.addView(line(bits.joinToString("  ·  "), P.SUB, 13f))
+            a.tensionResolved?.let { if (it >= 0.7) b.addView(line("✓ 紧张已缓解", P.OK, 12f)) }
         } else if (judgeWaiting) {
             b.addView(waitHint(if (prefs.advisorMode == Prefs.MODE_GOUTOU) "军师分析中" else "分析中"))
         } else if (!advisorNote.isNullOrBlank()) {
@@ -560,16 +600,16 @@ class OverlayController(private val ctx: Context) {
             // analysis slot, not another reply.
             val noteCard = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
-                background = card(12, Color.parseColor("#F0EBFD"))
+                background = card(12, P.BRAND_DIM)
                 setPadding(dp(10), dp(8), dp(10), dp(8))
             }
-            noteCard.addView(line("军师简析", "#6C4CF1", 13f, true))
-            noteCard.addView(line(advisorNote!!, "#6C4CF1", 13f).apply { setLineSpacing(dp(2).toFloat(), 1f) })
+            noteCard.addView(line("军师简析", P.BRAND, 13f, true))
+            noteCard.addView(line(advisorNote!!, P.BRAND, 13f).apply { setLineSpacing(dp(2).toFloat(), 1f) })
             b.addView(noteCard)
         }
         errorMsg?.let {
-            if (a != null) b.addView(line("这一轮更新失败：$it", "#D64545", 12f))
-            else b.addView(line(it, "#D64545", 12f))
+            if (a != null) b.addView(line("这一轮更新失败：$it", P.DANGER, 12f))
+            else b.addView(line(it, P.DANGER, 12f))
         }
 
         b.addView(divider())
@@ -583,30 +623,30 @@ class OverlayController(private val ctx: Context) {
                 val classicRanked = classicList.any { it.prob > 0.0 }
                 if (dual) {
                     b.addView(hint("候选回复（经典 · 军师两组，任选一条填入）"))
-                    b.addView(groupChip(if (classicRanked) "经典 · 引擎排序" else "经典", Color.parseColor("#3F74C9")))
+                    b.addView(groupChip(if (classicRanked) "经典 · 引擎排序" else "经典", P.INFO_BLUE))
                     classicList.forEachIndexed { i, r ->
                         b.addView(replyCard(i + 1, r.text, (r.prob * 100).roundToInt(), classicRanked && classicList.size > 1))
                     }
-                    b.addView(groupChip("军师", Color.parseColor("#6C4CF1")))
+                    b.addView(groupChip("军师", P.BRAND))
                     goutouList.forEachIndexed { i, r ->
                         b.addView(replyCard(classicList.size + i + 1, r.text, 0, ranked = false,
-                            tint = if (i == 0) Color.parseColor("#F0EBFD") else Color.parseColor("#FDFCFF")))
+                            tint = if (i == 0) P.BRAND_DIM else P.CARD_RAISED))
                     }
                     // One group came back empty: surface its error under its chip.
-                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#D64545", 12f)) }
+                    if (!repliesWaiting) replyError?.let { b.addView(line(it, P.DANGER, 12f)) }
                 } else if (goutouList.isNotEmpty()) {
                     b.addView(hint("候选回复（军师，第一条为首选）"))
                     goutouList.forEachIndexed { i, r ->
                         b.addView(replyCard(i + 1, r.text, 0, ranked = false,
-                            tint = if (i == 0) Color.parseColor("#F0EBFD") else Color.parseColor("#FDFCFF")))
+                            tint = if (i == 0) P.BRAND_DIM else P.CARD_RAISED))
                     }
-                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#D64545", 12f)) }
+                    if (!repliesWaiting) replyError?.let { b.addView(line(it, P.DANGER, 12f)) }
                 } else {
                     b.addView(hint(if (classicRanked) "候选回复（经典排序）" else "候选回复"))
                     classicList.forEachIndexed { i, r ->
                         b.addView(replyCard(i + 1, r.text, (r.prob * 100).roundToInt(), classicRanked && classicList.size > 1))
                     }
-                    if (!repliesWaiting) replyError?.let { b.addView(line(it, "#D64545", 12f)) }
+                    if (!repliesWaiting) replyError?.let { b.addView(line(it, P.DANGER, 12f)) }
                 }
             }
             repliesWaiting -> b.addView(waitHint(when (prefs.advisorMode) {
@@ -620,7 +660,7 @@ class OverlayController(private val ctx: Context) {
                     replyError != null -> "回复接口出错：$replyError"
                     else -> "（未生成候选回复）"
                 }
-                b.addView(line(msg, "#D64545", 12f))
+                b.addView(line(msg, P.DANGER, 12f))
             }
         }
         // Footer: status on the left, "换一组" (or 重试) on the right.
@@ -629,16 +669,27 @@ class OverlayController(private val ctx: Context) {
             setPadding(0, dp(8), 0, 0)
         }
         val left = TextView(ctx).apply {
-            textSize = 12f; setTextColor(Color.parseColor("#6B6483"))
+            textSize = 12f; setTextColor(P.SUB)
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
         }
         if (repliesWaiting && list.isNotEmpty()) { left.text = "换一组中…"; waitLabels.add(left to "换一组中") }
         else left.text = if (list.isNotEmpty()) (if (dual) "两组共 ${list.size} 条" else "${list.size} 条候选") else ""
         footer.addView(left)
+        // 底部操作行：展开 / 重新分析 / 换一组
+        if (list.isNotEmpty()) footer.addView(miniBtn("展开") { setExpanded(true) })
         if (!repliesWaiting && !judgeWaiting) {
-            footer.addView(pill(if (list.isEmpty()) "重试" else "换一组", primary = false) { onRegenerate?.invoke() })
+            footer.addView(miniBtn("重新分析") { onManualAnalyze?.invoke() })
+            footer.addView(miniBtn(if (list.isEmpty()) "重试" else "换一组") { onRegenerate?.invoke() })
         }
         b.addView(footer)
+    }
+
+    /** 底部操作行小按钮（紫色文字）。 */
+    private fun miniBtn(label: String, onClick: () -> Unit) = TextView(ctx).apply {
+        text = label; textSize = 12.5f; setTypeface(typeface, Typeface.BOLD)
+        setTextColor(P.BRAND)
+        setPadding(dp(8), dp(4), dp(8), dp(4))
+        setOnClickListener { onClick() }
     }
 
     private fun waitHint(label: String): TextView = hint("$label…").also { waitLabels.add(it to label) }
@@ -657,18 +708,18 @@ class OverlayController(private val ctx: Context) {
         val top = rank == 1 && ranked
         val c = LinearLayout(ctx).apply {
             orientation = LinearLayout.VERTICAL
-            background = card(12, tint ?: if (top) Color.parseColor("#FFF3DD") else Color.parseColor("#FDFCFF"))
+            background = card(12, tint ?: if (top) P.GOLD_DIM else P.CARD_RAISED)
             setPadding(dp(10), dp(8), dp(10), dp(8))
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(6) }
         }
         if (ranked) c.addView(TextView(ctx).apply {
-            this.text = "#$rank · ${pct}%"; setTextColor(Color.parseColor("#C8892B")); textSize = 11f
+            this.text = "#$rank · ${pct}%"; setTextColor(P.GOLD); textSize = 11f
             setTypeface(typeface, Typeface.BOLD)
         })
         c.addView(TextView(ctx).apply {
-            this.text = text; setTextColor(Color.parseColor("#201A2E")); textSize = 14f
+            this.text = text; setTextColor(P.PAPER); textSize = 14f
             setPadding(0, dp(3), 0, dp(7)); setLineSpacing(dp(2).toFloat(), 1f)
             setTextIsSelectable(true)
         })
@@ -683,8 +734,8 @@ class OverlayController(private val ctx: Context) {
     private fun pill(label: String, primary: Boolean, onClick: () -> Unit) = TextView(ctx).apply {
         text = label; textSize = 13f; gravity = Gravity.CENTER
         setTypeface(typeface, Typeface.BOLD)
-        setTextColor(if (primary) Color.WHITE else Color.parseColor("#6C4CF1"))
-        background = card(18, if (primary) Color.parseColor("#6C4CF1") else Color.parseColor("#FFFFFF"), stroke = !primary)
+        setTextColor(if (primary) Color.WHITE else P.BRAND)
+        background = card(18, if (primary) P.BRAND else P.CARD, stroke = !primary)
         setPadding(dp(16), dp(6), dp(16), dp(6))
         layoutParams = LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
@@ -694,17 +745,17 @@ class OverlayController(private val ctx: Context) {
 
     // --------------------------------------------------------------- helpers
 
-    private fun line(text: String, color: String, size: Float, bold: Boolean = false) =
+    private fun line(text: String, color: Int, size: Float, bold: Boolean = false) =
         TextView(ctx).apply {
-            this.text = text; setTextColor(Color.parseColor(color)); textSize = size
+            this.text = text; setTextColor(color); textSize = size
             if (bold) setTypeface(typeface, Typeface.BOLD)
             setPadding(0, dp(2), 0, dp(2))
         }
 
-    private fun hint(text: String) = line(text, "#6B6483", 12f)
+    private fun hint(text: String) = line(text, P.SUB, 12f)
 
     private fun divider() = View(ctx).apply {
-        setBackgroundColor(Color.parseColor("#EAE7F6"))
+        setBackgroundColor(P.LINE)
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
             topMargin = dp(6); bottomMargin = dp(4)
         }
@@ -717,9 +768,9 @@ class OverlayController(private val ctx: Context) {
     }
 
     private fun dangerColor(lvl: Int): Int = when {
-        lvl >= 6 -> Color.parseColor("#D64545")
-        lvl >= 3 -> Color.parseColor("#C8892B")
-        else -> Color.parseColor("#27915C")
+        lvl >= 6 -> P.DANGER
+        lvl >= 3 -> P.GOLD
+        else -> P.OK
     }
 
     private fun dangerWord(lvl: Int): String = when {

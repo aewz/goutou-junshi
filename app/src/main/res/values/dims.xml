@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 间距规范（dp）：4 的倍数 -->
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_s">8dp</dimen>
+    <dimen name="space_m">12dp</dimen>
+    <dimen name="space_l">16dp</dimen>
+    <dimen name="space_xl">20dp</dimen>
+    <dimen name="space_xxl">24dp</dimen>
+    <dimen name="gutter">18dp</dimen>
+    <dimen name="card_radius">16dp</dimen>
+    <dimen name="btn_radius">12dp</dimen>
+    <dimen name="chip_radius">8dp</dimen>
+    <dimen name="input_radius">10dp</dimen>
+</resources>

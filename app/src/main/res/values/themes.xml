@@ -1,16 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- 「紫气东来」浅色主题：系统对话框、状态栏随主题。 -->
+    <!-- M3 紫系 · DayNight：系统深浅模式自动切换。 -->
     <style name="Theme.GoutouJunshi" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">#6D3FE0</item>
-        <item name="colorPrimaryVariant">#7C3AED</item>
-        <item name="colorSecondary">#6D3FE0</item>
-        <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="android:windowBackground">#F6F4FB</item>
-        <item name="colorSurface">#FFFFFF</item>
-        <item name="colorOnSurface">#231D33</item>
-        <item name="colorError">#D64545</item>
-        <item name="android:textColorPrimary">#231D33</item>
-        <item name="android:textColorSecondary">#6E6683</item>
-        <item name="android:textColorHint">#A29BB8</item>
+        <item name="colorPrimary">@color/g_primary</item>
+        <item name="colorSecondary">@color/g_secondary</item>
+        <item name="colorOnPrimary">@color/g_on_primary</item>
+        <item name="android:windowBackground">@color/g_bg</item>
+        <item name="colorSurface">@color/g_surface</item>
+        <item name="colorOnSurface">@color/g_on_surface</item>
+        <item name="colorError">@color/g_error</item>
+        <item name="android:textColorPrimary">@color/g_on_surface</item>
+        <item name="android:textColorSecondary">@color/g_on_surface_var</item>
+        <item name="android:textColorHint">@color/g_on_surface_faint</item>
     </style>
 </resources>

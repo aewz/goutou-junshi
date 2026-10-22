@@ -4,8 +4,8 @@
 
 挂在你聊天 App 旁边的对话副驾：读到对方最新消息，先判断、再给可执行的话术，悬浮窗里点一下填入输入框。**发送永远由你自己点，程序绝不自动发。**
 
-- **包名**：`com.aewz.goutou` · **版本**：1.1.0
-- **下载**：[goutoujunshi-v1.1.0-release.apk](apk/goutoujunshi-v1.1.0-release.apk)（或见 [Releases](https://github.com/aewz/goutou-junshi/releases)）
+- **包名**：`com.aewz.goutou` · **版本**：1.2.0
+- **下载**：[goutoujunshi-v1.2.0-release.apk](apk/goutoujunshi-v1.2.0-release.apk)（或见 [Releases](https://github.com/aewz/goutou-junshi/releases)）
 
 ## 三种模式
 

@@ -36,14 +36,17 @@ import kotlin.math.roundToInt
 
 class SettingsActivity : AppCompatActivity() {
 
+    /** 当前深浅模式的色板。 */
+    private val P get() = Palette.of(this)
+
     private lateinit var prefs: Prefs
     private val worker = Executors.newSingleThreadExecutor()
     private val main = Handler(Looper.getMainLooper())
 
-    private val accent = Palette.BRAND
-    private val ink = Palette.PAPER
-    private val sub = Palette.SUB
-    private val pillOff = Palette.CARD
+    private val accent = P.BRAND
+    private val ink = P.PAPER
+    private val sub = P.SUB
+    private val pillOff = P.CARD
 
     /** Selected provider index per card, held so Save can read it back. */
     private var judgeProviderIdx = 0
@@ -56,7 +59,7 @@ class SettingsActivity : AppCompatActivity() {
         prefs = Prefs(this)
         Log.i(TAG, "settings opened judgeKey.len=${prefs.judgeKey.length}" +
             " replyKey.len=${prefs.replyKey.length} visionKey.len=${prefs.visionKey.length}")
-        window.decorView.setBackgroundColor(Palette.BG)
+        window.decorView.setBackgroundColor(P.BG)
 
         val scroll = ScrollView(this)
         val root = LinearLayout(this).apply {
@@ -69,7 +72,7 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(header("设置"))
 
         // =================== 接口 ===================
-        root.addView(section("接口"))
+        root.addView(section("AI 模型与接口"))
 
         // --- 判断接口 ---
         val judgeCard = card()
@@ -103,7 +106,7 @@ class SettingsActivity : AppCompatActivity() {
         bochaRow.addView(TextView(this).apply {
             text = "复制"; textSize = 13f; gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(accent); background = round(dp(10), Palette.CARD, stroke = true)
+            setTextColor(accent); background = round(dp(10), P.CARD, stroke = true)
             setPadding(dp(16), dp(6), dp(16), dp(6))
             setOnClickListener {
                 val cm = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
@@ -310,7 +313,7 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(visionCard)
 
         // =================== 分析 ===================
-        root.addView(section("分析"))
+        root.addView(section("聊天分析"))
         val card2 = card()
         card2.addView(label("关系描述"))
         val relEdit = edit(prefs.relationship, Prefs.DEFAULT_REL)
@@ -327,42 +330,41 @@ class SettingsActivity : AppCompatActivity() {
         card2.addView(pills(listOf("1 条", "2 条", "3 条"), pickedCount - 1) { pickedCount = it + 1 })
         card2.addView(text("只要 1 条时不做排序，出得更快；不满意可以在卡片里点「换一组」。", 11f, sub))
 
-        // --- OCR 兜底（B 阶段）---
+        // --- 高级设置（折叠，常用场景不用打开） ---
+        val advToggle = toggleRow("高级设置（OCR 兜底等）", false)
+        card2.addView(advToggle)
+        val advBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; visibility = View.GONE
+        }
+        advToggle.setOnClickListener {
+            advBox.visibility = if ((advToggle.tag as? Boolean) == true) View.VISIBLE else View.GONE
+        }
         val ocrFallbackRow = toggleRow("树读不到正文时用 OCR 兜底", prefs.ocrFallback)
-        card2.addView(ocrFallbackRow)
-        card2.addView(text("飞书正文是画上去的，节点树里读不到，这时截一次屏本地识别（不上传）。", 11f, sub))
+        advBox.addView(ocrFallbackRow)
+        advBox.addView(text("飞书正文是画上去的，节点树里读不到，这时截一次屏本地识别（不上传）。", 11f, sub))
         val ocrAutoRow = toggleRow("OCR 模式自动分析", prefs.ocrAutoAnalyze)
-        card2.addView(ocrAutoRow)
-        card2.addView(text("关闭时 OCR 认完只亮悬浮球，点一下再分析。", 11f, sub))
+        advBox.addView(ocrAutoRow)
+        advBox.addView(text("关闭时 OCR 认完只亮悬浮球，点一下再分析。", 11f, sub))
+        card2.addView(advBox)
+        root.addView(card2)
 
-        // --- 知识库 / 关联上下文（D 阶段） ---
+        // =================== 知识库 ===================
+        root.addView(section("知识库"))
+        val kbCard = card()
         val ctxRow = toggleRow("记录聊天历史（只存本机，用于关联上下文）", prefs.contextEnabled)
-        card2.addView(ctxRow)
-        card2.addView(text("关闭时不写任何聊天内容到磁盘；笔记与联系人匹配仍然照常工作。", 11f, sub))
-        card2.addView(label("注入最近历史条数（0–100）"))
+        kbCard.addView(ctxRow)
+        kbCard.addView(text("关闭时不写任何聊天内容到磁盘；笔记与联系人匹配仍然照常工作。", 11f, sub))
+        kbCard.addView(label("注入最近历史条数（0–100）"))
         val ctxCountEdit = edit(prefs.contextHistoryCount.toString(), "30").apply {
             inputType = InputType.TYPE_CLASS_NUMBER
         }
-        card2.addView(ctxCountEdit)
-        card2.addView(cardBtn("知识库与联系人") {
+        kbCard.addView(ctxCountEdit)
+        kbCard.addView(cardBtn("打开知识库（笔记 / 联系人 / 军师资料）") {
             startActivity(android.content.Intent(this, KnowledgeActivity::class.java))
         })
         val kbResult = resultText()
-        card2.addView(cardBtn("清空知识库与历史") {
-            val c = KbStore.get(this).counts()
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle("清空知识库与历史")
-                .setMessage("将删除 ${c.notes} 条笔记、${c.contacts} 个联系人、${c.logLines} 条聊天历史。" +
-                    "密钥、白名单等设置不受影响。不可恢复。")
-                .setPositiveButton("清空") { _, _ ->
-                    KbStore.get(this).clearAll()
-                    kbResult.text = "已清空知识库与历史"
-                }
-                .setNegativeButton("取消", null)
-                .show()
-        })
-        // Deliberately low-key: a developer aid, not a user feature.
-        card2.addView(text("自检", 12f, sub).apply {
+        kbCard.addView(kbResult)
+        kbCard.addView(text("自检", 12f, sub).apply {
             setPadding(dp(2), dp(12), dp(8), dp(2))
             setOnClickListener {
                 kbResult.text = "自检中…"
@@ -373,11 +375,38 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         })
-        card2.addView(kbResult)
-        root.addView(card2)
+        root.addView(kbCard)
+
+        // =================== 危险操作 ===================
+        root.addView(section("危险操作"))
+        val dangerCard = card()
+        val clearBtn = TextView(this).apply {
+            text = "清空知识库与历史"; textSize = 14f; gravity = Gravity.CENTER
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(P.DANGER)
+            background = round(dp(10), P.CARD, stroke = true)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
+            setOnClickListener {
+                val c = KbStore.get(this@SettingsActivity).counts()
+                androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle("清空知识库与历史")
+                    .setMessage("将删除 ${c.notes} 条笔记、${c.contacts} 个联系人、${c.logLines} 条聊天历史。" +
+                        "密钥、白名单等设置不受影响。不可恢复。")
+                    .setPositiveButton("清空") { _, _ ->
+                        KbStore.get(this@SettingsActivity).clearAll()
+                        kbResult.text = "已清空知识库与历史"
+                    }
+                    .setNegativeButton("取消", null)
+                    .show()
+            }
+        }
+        dangerCard.addView(clearBtn)
+        root.addView(dangerCard)
 
         // =================== 军师 ===================
-        root.addView(section("军师"))
+        root.addView(section("默认模式"))
         val advisorCard = card()
         advisorCard.addView(label("分析模式"))
         var pickedMode = prefs.advisorMode
@@ -401,14 +430,11 @@ class SettingsActivity : AppCompatActivity() {
         var pickedHybridCount = prefs.hybridCandidateCount
         advisorCard.addView(pills(listOf("2 条", "3 条"), pickedHybridCount - 2) { pickedHybridCount = it + 2 })
         advisorCard.addView(text("2 条时 token 省一半，经典组不做排序。", 11f, sub))
-        advisorCard.addView(cardBtn("军师知识库") {
-            startActivity(android.content.Intent(this, GoutouKnowledgeActivity::class.java))
-        })
-        advisorCard.addView(text("知识库随包打包，仅在本地浏览，不参与每次分析请求。", 11f, sub))
+        advisorCard.addView(text("军师资料在「知识库」页（底部导航）可分类浏览与搜索。", 11f, sub))
         root.addView(advisorCard)
 
         // =================== 外观 ===================
-        root.addView(section("外观"))
+        root.addView(section("悬浮窗"))
         val card3 = card()
         val opacityLabel = label("悬浮窗不透明度：${prefs.overlayOpacity}%")
         card3.addView(opacityLabel)
@@ -427,7 +453,7 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(card3)
 
         // =================== 关于与隐私 ===================
-        root.addView(section("关于与隐私"))
+        root.addView(section("隐私与关于"))
         val aboutCard = card()
         aboutCard.addView(text(
             "这个 App 会读取你当前聊天窗口的文字，发给你自己配置的模型接口做判断和起草回复。作者不运营服务器，收不到你的数据。",
@@ -438,6 +464,7 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(aboutCard)
 
         // =================== 保存 ===================
+        val saveState = resultText()
         root.addView(primaryBtn("保存全部设置") {
             // Address wins over the pill: a preset HOST in the box means that
             // preset's provider (and so its path), whatever the pill last said.
@@ -481,8 +508,12 @@ class SettingsActivity : AppCompatActivity() {
             prefs.contextHistoryCount =
                 ctxCountEdit.text.toString().trim().toIntOrNull()?.coerceIn(0, 100) ?: 30
             prefs.overlayOpacity = seek.progress + 60
-            Toast.makeText(this, "已保存", Toast.LENGTH_SHORT).show()
+            val now = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date())
+            saveState.text = "已保存 $now ✓"
+            Toast.makeText(this, "设置已保存", Toast.LENGTH_SHORT).show()
         })
+        root.addView(saveState)
 
         setContentView(scroll)
     }
@@ -617,9 +648,9 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun paintPill(v: TextView, on: Boolean) {
-        v.setTextColor(if (on) Palette.BRAND else Palette.SUB)
+        v.setTextColor(if (on) P.BRAND else P.SUB)
         v.setTypeface(v.typeface, if (on) Typeface.BOLD else Typeface.NORMAL)
-        v.background = round(dp(9), if (on) Palette.BRAND_DIM else Palette.CARD, stroke = on)
+        v.background = round(dp(9), if (on) P.BRAND_DIM else P.CARD, stroke = on)
     }
 
     private fun toggleRow(labelText: String, initial: Boolean): LinearLayout {
@@ -633,15 +664,15 @@ class SettingsActivity : AppCompatActivity() {
         val sw = TextView(this).apply {
             text = if (initial) "开" else "关"; textSize = 13f; gravity = Gravity.CENTER
             setTypeface(typeface, Typeface.BOLD)
-            setTextColor(if (initial) Palette.BRAND_ON else Palette.SUB)
-            background = round(dp(10), if (initial) Palette.BRAND else Palette.LINE)
+            setTextColor(if (initial) P.BRAND_ON else P.SUB)
+            background = round(dp(10), if (initial) P.BRAND else P.LINE)
             setPadding(dp(18), dp(6), dp(18), dp(6))
         }
         sw.setOnClickListener {
             val now = !((row.tag as? Boolean) ?: true); row.tag = now
             sw.text = if (now) "开" else "关"
-            sw.setTextColor(if (now) Palette.BRAND_ON else Palette.SUB)
-            sw.background = round(dp(10), if (now) Palette.BRAND else Palette.LINE)
+            sw.setTextColor(if (now) P.BRAND_ON else P.SUB)
+            sw.background = round(dp(10), if (now) P.BRAND else P.LINE)
         }
         row.addView(lab); row.addView(sw)
         return row
@@ -655,11 +686,11 @@ class SettingsActivity : AppCompatActivity() {
     private fun section(t: String): View = Views.section(this, t)
     private fun label(t: String) = Views.label(this, t)
     private fun cardTitle(t: String) = text(t, 16f, ink, bold = true).apply { setPadding(0, dp(10), 0, dp(4)) }
-    private fun resultText() = text("", 12.5f, Palette.FAINT).apply { setPadding(0, dp(10), 0, dp(2)) }
+    private fun resultText() = text("", 12.5f, P.FAINT).apply { setPadding(0, dp(10), 0, dp(2)) }
 
     private fun card() = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        background = round(dp(14), Palette.CARD, stroke = true)
+        background = round(dp(14), P.CARD, stroke = true)
         elevation = dp(1).toFloat()
         setPadding(dp(14), dp(4), dp(14), dp(14))
         layoutParams = LinearLayout.LayoutParams(
@@ -669,8 +700,8 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun edit(value: String, hint: String, password: Boolean = false) = EditText(this).apply {
         setText(value); this.hint = hint; textSize = 14f; setTextColor(ink)
-        setHintTextColor(Palette.FAINT)
-        background = round(dp(10), Palette.BG, stroke = true)
+        setHintTextColor(P.FAINT)
+        background = round(dp(10), P.BG, stroke = true)
         setPadding(dp(10), dp(10), dp(10), dp(10))
         // Masked, not VISIBLE_PASSWORD: an API key should not sit in plain sight.
         if (password) inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -684,7 +715,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun primaryBtn(label: String, onClick: () -> Unit) = TextView(this).apply {
         text = label; textSize = 15f; gravity = Gravity.CENTER; setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Palette.BRAND_ON); background = round(dp(12), Palette.BRAND)
+        setTextColor(P.BRAND_ON); background = round(dp(12), P.BRAND)
         setPadding(dp(16), dp(13), dp(16), dp(13))
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(18) }
@@ -694,7 +725,7 @@ class SettingsActivity : AppCompatActivity() {
     /** Outlined button sized for inside a card. */
     private fun cardBtn(label: String, onClick: () -> Unit) = TextView(this).apply {
         text = label; textSize = 14f; gravity = Gravity.CENTER; setTypeface(typeface, Typeface.BOLD)
-        setTextColor(Palette.BRAND); background = round(dp(10), Palette.CARD, stroke = true)
+        setTextColor(P.BRAND); background = round(dp(10), P.CARD, stroke = true)
         setPadding(dp(14), dp(10), dp(14), dp(10))
         layoutParams = LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(14) }
@@ -702,7 +733,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun round(radius: Int, color: Int, stroke: Boolean = false) = GradientDrawable().apply {
-        cornerRadius = radius.toFloat(); setColor(color); if (stroke) setStroke(dp(1), Palette.LINE)
+        cornerRadius = radius.toFloat(); setColor(color); if (stroke) setStroke(dp(1), P.LINE)
     }
 
     override fun onDestroy() { super.onDestroy(); worker.shutdownNow() }
